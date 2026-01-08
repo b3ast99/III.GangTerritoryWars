@@ -39,16 +39,22 @@ namespace {
         auto& ini = IniConfig::Instance();
         ini.Load("III.GangTerritoryWars.ini");
 
-        gFlashConfig.cycleMs = ini.GetInt("AttackFlash", "CycleMs", 1300);
-        gFlashConfig.maxAlpha = ini.GetInt("AttackFlash", "MaxAlpha", 125);
-        gFlashConfig.colorR = ini.GetInt("AttackFlash", "ColorR", 210);
-        gFlashConfig.colorG = ini.GetInt("AttackFlash", "ColorG", 25);
-        gFlashConfig.colorB = ini.GetInt("AttackFlash", "ColorB", 25);
+        auto ClampInt = [](int v, int lo, int hi) -> int {
+            return std::clamp(v, lo, hi);
+            };
+
+        // Clamp to sane ranges
+        gFlashConfig.cycleMs = (unsigned int)ClampInt(ini.GetInt("AttackFlash", "CycleMs", 1300), 100, 10000);
+        gFlashConfig.maxAlpha = (unsigned char)ClampInt(ini.GetInt("AttackFlash", "MaxAlpha", 125), 0, 255);
+        gFlashConfig.colorR = (unsigned char)ClampInt(ini.GetInt("AttackFlash", "ColorR", 210), 0, 255);
+        gFlashConfig.colorG = (unsigned char)ClampInt(ini.GetInt("AttackFlash", "ColorG", 25), 0, 255);
+        gFlashConfig.colorB = (unsigned char)ClampInt(ini.GetInt("AttackFlash", "ColorB", 25), 0, 255);
         gFlashConfig.liveReload = ini.GetInt("AttackFlash", "LiveReload", 1) != 0;
 
         gFlashConfig.lastLoadTime = CTimer::m_snTimeInMilliseconds;
         gFlashConfig.initialized = true;
     }
+
 
     // Reload config every ~500ms to allow live tuning (can be disabled via INI setting to boost performance)
     static void RefreshConfigIfNeeded() {
@@ -192,6 +198,38 @@ namespace {
         RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)FALSE);
     }
 
+    struct RenderStateBackup {
+        void* textureRaster = nullptr;
+        void* vertexAlpha = nullptr;
+        void* srcBlend = nullptr;
+        void* dstBlend = nullptr;
+        void* zTest = nullptr;
+        void* zWrite = nullptr;
+    };
+
+    static inline RenderStateBackup CaptureRenderState()
+    {
+        RenderStateBackup s{};
+        RwRenderStateGet(rwRENDERSTATETEXTURERASTER, &s.textureRaster);
+        RwRenderStateGet(rwRENDERSTATEVERTEXALPHAENABLE, &s.vertexAlpha);
+        RwRenderStateGet(rwRENDERSTATESRCBLEND, &s.srcBlend);
+        RwRenderStateGet(rwRENDERSTATEDESTBLEND, &s.dstBlend);
+        RwRenderStateGet(rwRENDERSTATEZTESTENABLE, &s.zTest);
+        RwRenderStateGet(rwRENDERSTATEZWRITEENABLE, &s.zWrite);
+        return s;
+    }
+
+    static inline void RestoreRenderState(const RenderStateBackup& s)
+    {
+        RwRenderStateSet(rwRENDERSTATETEXTURERASTER, s.textureRaster);
+        RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, s.vertexAlpha);
+        RwRenderStateSet(rwRENDERSTATESRCBLEND, s.srcBlend);
+        RwRenderStateSet(rwRENDERSTATEDESTBLEND, s.dstBlend);
+        RwRenderStateSet(rwRENDERSTATEZTESTENABLE, s.zTest);
+        RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, s.zWrite);
+    }
+
+
     static void DrawPolyFilledFan(const std::vector<CVector2D>& poly, const CRGBA& fill)
     {
         if (poly.size() < 3) return;
@@ -299,10 +337,12 @@ namespace {
     };
 
     static RadarFrameCache gRadarCache;
+    #ifdef _DEBUG
     static unsigned int s_cacheUpdates = 0;
     static unsigned int s_ellipseRebuilds = 0;
     static unsigned int s_drawTerritoryCalls = 0;
     static unsigned int s_lastPerfLogMs = 0;
+    #endif
 
     static std::vector<CVector2D> MakeEllipsePolyLocal(float rx, float ry, int segs)
     {
@@ -322,7 +362,9 @@ namespace {
 
     static void UpdateRadarCache()
     {
+        #ifdef _DEBUG
         ++s_cacheUpdates; // DEBUG
+        #endif  
         float unusedRadius = 0.0f;
         GetRadarCircleScreen(gRadarCache.center, unusedRadius);
 
@@ -350,7 +392,9 @@ namespace {
 
             gRadarCache.fillEllipseLocal =
                 MakeEllipsePolyLocal(gRadarCache.fillRx, gRadarCache.fillRy, gRadarCache.segs);
+            #ifdef _DEBUG
             ++s_ellipseRebuilds;
+            #endif
         }
     }
 
@@ -386,50 +430,68 @@ namespace {
         const std::vector<CVector2D>& subject,
         const std::vector<CVector2D>& clip
     ) {
-        std::vector<CVector2D> out = subject;
-        if (out.size() < 3 || clip.size() < 3) return {};
+        if (subject.size() < 3 || clip.size() < 3) return {};
+
+        // Reused working buffers (capacity persists; contents do not leak)
+        static std::vector<CVector2D> bufA;
+        static std::vector<CVector2D> bufB;
+
+        // Reserve to avoid growth reallocations.
+        // For quad clipped by ~96-gon, typical upper bound stays well under a few hundred.
+        if (bufA.capacity() < 256) bufA.reserve(256);
+        if (bufB.capacity() < 256) bufB.reserve(256);
+
+        // Copy subject into bufA (still a copy, but no reallocation once capacity is set)
+        bufA.assign(subject.begin(), subject.end());
+        bufB.clear();
+
+        std::vector<CVector2D>* in = &bufA;
+        std::vector<CVector2D>* out = &bufB;
 
         for (size_t i = 0; i < clip.size(); ++i) {
             const CVector2D A = clip[i];
             const CVector2D B = clip[(i + 1) % clip.size()];
 
-            std::vector<CVector2D> input = out;
-            out.clear();
-            if (input.empty()) break;
+            out->clear();
+            if (in->empty()) break;
 
-            CVector2D S = input.back();
+            CVector2D S = in->back();
             bool S_in = InsideHalfPlaneCCW(S, A, B);
 
-            for (const auto& E : input) {
+            for (const auto& E : *in) {
                 const bool E_in = InsideHalfPlaneCCW(E, A, B);
 
                 if (S_in && E_in) {
-                    out.push_back(E);
+                    out->push_back(E);
                 }
                 else if (S_in && !E_in) {
-                    out.push_back(LineIntersection(S, E, A, B));
+                    out->push_back(LineIntersection(S, E, A, B));
                 }
                 else if (!S_in && E_in) {
-                    out.push_back(LineIntersection(S, E, A, B));
-                    out.push_back(E);
+                    out->push_back(LineIntersection(S, E, A, B));
+                    out->push_back(E);
                 }
 
                 S = E;
                 S_in = E_in;
             }
+
+            std::swap(in, out);
         }
 
-        // De-dupe consecutive near-identical points
+        if (in->size() < 3) return {};
+
+        // Dedup/clean into a normal local result so we return stable memory by value.
         std::vector<CVector2D> clean;
-        clean.reserve(out.size());
-        for (const auto& p : out) {
+        clean.reserve(in->size());
+
+        for (const auto& p : *in) {
             if (clean.empty()) { clean.push_back(p); continue; }
             const auto& q = clean.back();
             const float dx = p.x - q.x, dy = p.y - q.y;
             if (dx * dx + dy * dy > 0.25f) clean.push_back(p);
         }
 
-        // Wrap-around de-dupe
         if (clean.size() >= 2) {
             const auto& f = clean.front();
             const auto& l = clean.back();
@@ -437,8 +499,12 @@ namespace {
             if (dx * dx + dy * dy <= 0.25f) clean.pop_back();
         }
 
-        return (clean.size() >= 3) ? clean : std::vector<CVector2D>{};
+        if (clean.size() < 3) return {};
+        return clean; // return-by-value (safe)
     }
+
+
+
 
 
 
@@ -447,7 +513,9 @@ namespace {
     // -------------------------------
     static void DrawRadarTerritory(const Territory& t, const CRGBA& fill)
     {
+        #ifdef _DEBUG
         ++s_drawTerritoryCalls; // DEBUG
+        #endif
         const float x1 = t.minX;
         const float y1 = t.minY;
         const float x2 = t.maxX;
@@ -494,6 +562,13 @@ namespace {
         const std::vector<CVector2D> clippedLocal = ClipConvexCCW(quadLocal, gRadarCache.fillEllipseLocal);
         if (clippedLocal.size() < 3) return;
 
+        #ifdef _DEBUG
+        if (clippedLocal.size() > 512) {
+            DebugLog::Write("[RadarPerf] WARNING: clippedLocal too large (%zu)", clippedLocal.size());
+            return;
+        }
+        #endif
+
         clippedScreen.clear();
         clippedScreen.reserve(clippedLocal.size());
         for (const auto& p : clippedLocal) clippedScreen.push_back(Add(p, center));
@@ -506,30 +581,36 @@ namespace {
 
 void TerritoryRadarRenderer::DrawRadarOverlay(const std::vector<Territory>& territories)
 {
+    const auto rs = CaptureRenderState();
 
     RefreshConfigIfNeeded();
-    UpdateRadarCache();
+
+    static bool s_cacheInit = false;
+    static unsigned int s_nextRadarCacheMs = 0;
+    const unsigned int now = CTimer::m_snTimeInMilliseconds;
+
+    if (!s_cacheInit || (int)(now - s_nextRadarCacheMs) >= 0) {
+        s_cacheInit = true;
+        s_nextRadarCacheMs = now + 80; // ~12.5 Hz
+        UpdateRadarCache();
+    }
 
     for (const auto& t : territories) {
         const CRGBA fill = RGBAForOwner(t.ownerGang, t.underAttack, t.defenseLevel);
         DrawRadarTerritory(t, fill);
     }
 
-    unsigned int now = CTimer::m_snTimeInMilliseconds;
-    if (now - s_lastPerfLogMs >= 2500) {
-        s_lastPerfLogMs = now;
+    RestoreRenderState(rs);
 
-        DebugLog::Write(
-            "[RadarPerf] territories=%zu drawCalls=%u cacheUpdates=%u ellipseRebuilds=%u",
-            territories.size(),
-            s_drawTerritoryCalls,
-            s_cacheUpdates,
-            s_ellipseRebuilds
-        );
-
-        // Reset counters for next window
+    #ifdef _DEBUG
+    const unsigned int now2 = CTimer::m_snTimeInMilliseconds;
+    if (now2 - s_lastPerfLogMs >= 2500) {
+        s_lastPerfLogMs = now2;
+        DebugLog::Write("[RadarPerf] territories=%zu drawCalls=%u cacheUpdates=%u ellipseRebuilds=%u",
+            territories.size(), s_drawTerritoryCalls, s_cacheUpdates, s_ellipseRebuilds);
         s_drawTerritoryCalls = 0;
         s_cacheUpdates = 0;
         s_ellipseRebuilds = 0;
     }
+    #endif
 }
