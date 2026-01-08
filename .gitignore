@@ -1,41 +1,54 @@
-# Prerequisites
+# --- Visual Studio / MSBuild ---
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# --- Prerequisites / dependency files ---
 *.d
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
+# --- Build folders ---
+Debug/
+Release/
+x64/
+x86/
+build/
+bin/
+obj/
+out/
+
+# --- C/C++ intermediates ---
 *.obj
-
-# Precompiled Headers
-*.gch
+*.o
+*.lo
+*.slo
+*.sbr
 *.pch
-
-# Linker files
+*.gch
+*.ipch
+*.tlog
+*.idb
 *.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
+*.iobj
+*.ipdb
+*.exp
 *.lib
 
-# Executables
+# --- Debug symbols / crash dumps ---
+*.pdb
+*.dmp
+*.dwo
+
+# --- Output binaries ---
 *.exe
+*.dll
+*.asi
 *.out
 *.app
 
-# debug information files
-*.dwo
+# --- Logs ---
+*.log
+
+# --- Old Backups ---
+source_backups/
