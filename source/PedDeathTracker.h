@@ -21,7 +21,7 @@ private:
 
     static bool PlayerOnFootAndControllable(CPlayerPed* player);
 
-    // Conservative ìrecent combatî signal
+    // Conservative ‚Äúrecent combat‚Äù signal
     static bool IsPlayerRecentlyAttacking(CPlayerPed* player);
 
     struct DeathRecord {

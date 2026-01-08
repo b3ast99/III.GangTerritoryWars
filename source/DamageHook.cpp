@@ -82,7 +82,7 @@ void DamageHook::Install()
     //
     // Known-ish candidates used by different GTA3 builds:
     // 1.0: 0x004B5B80 is commonly cited for CPed::InflictDamage
-    // Others may differ (1.1/Steam/etc.) – you may need to add addresses for your build.
+    // Others may differ (1.1/Steam/etc.) â€“ you may need to add addresses for your build.
     const std::vector<unsigned int> candidates = {
         0x004B5B80,
         // Add more candidates here if you identify them for your EXE build.

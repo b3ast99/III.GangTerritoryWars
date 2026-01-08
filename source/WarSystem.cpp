@@ -153,7 +153,7 @@ bool WarSystem::IsMissionActive() {
 }
 
 bool WarSystem::CanTriggerWarInTerritory(int territoryOwner) {
-    // GTA III doesn�t have �player gang affiliation� in the same way SA does.
+    // GTA III doesnâ€™t have â€œplayer gang affiliationâ€ in the same way SA does.
     // If you have a notion of player-affiliated gang, enforce it here.
     // For now: allow provoking any non-neutral owner.
     return territoryOwner != 0;

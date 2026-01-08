@@ -114,7 +114,7 @@ namespace {
         // Stronger than your 55, still translucent.
         const unsigned char baseAlpha = 80;
 
-        // Saturation boost: 1.0 = unchanged. 1.20�1.35 is usually the SA "pop" zone.
+        // Saturation boost: 1.0 = unchanged. 1.20â€“1.35 is usually the SA "pop" zone.
         const float satMul = 1.25f;
 
         // Defense level should NOT noticeably change color in SA. Keep extremely subtle.
@@ -376,7 +376,7 @@ namespace {
         gRadarCache.fillRy = std::max(0.0f, gRadarCache.ry - kFillInsetPx);
         gRadarCache.segs = 96;
 
-        // Keep the �changed radii� test if you like
+        // Keep the â€œchanged radiiâ€ test if you like
         static float s_lastFillRx = -1.0f;
         static float s_lastFillRy = -1.0f;
         static int   s_lastSegs = -1;
@@ -401,7 +401,7 @@ namespace {
 
 
     // -------------------------------
-    // Convex polygon clipping (Sutherland�Hodgman)
+    // Convex polygon clipping (Sutherlandâ€“Hodgman)
     // Subject and clip polygons must be CCW.
     // -------------------------------
     static inline float Cross(const CVector2D& a, const CVector2D& b) { return a.x * b.y - a.y * b.x; }
