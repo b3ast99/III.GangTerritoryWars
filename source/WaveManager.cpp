@@ -507,7 +507,7 @@ void WaveManager::SpawnInitialHealthPickup() {
 
     if (spawnPos.x != 0 || spawnPos.y != 0) {
         // Model 1362 is health pickup
-        s_currentHealthPickup = SpawnPickupAtPosition(spawnPos, PICKUP_ON_STREET, 1362, 50);
+        s_currentHealthPickup = SpawnPickupAtPosition(spawnPos, PICKUP_ONCE, 1362, 50);
 
         if (s_currentHealthPickup) {
             DebugLog::Write("Initial health pickup spawned at %.1f, %.1f, %.1f",
@@ -527,7 +527,7 @@ void WaveManager::SpawnWave1ArmorPickup() {
 
     if (spawnPos.x != 0 || spawnPos.y != 0) {
         // Model 1364 is armor pickup
-        s_currentArmorPickup = SpawnPickupAtPosition(spawnPos, PICKUP_ON_STREET, 1364, 50);
+        s_currentArmorPickup = SpawnPickupAtPosition(spawnPos, PICKUP_ONCE, 1364, 50);
 
         if (s_currentArmorPickup) {
             s_wave1Completed = true;
@@ -556,119 +556,14 @@ void WaveManager::SpawnWave2HealthAndArmorPickups() {
     if (s_currentArmorPickup) CleanupPickup(s_currentArmorPickup);
 
     // Spawn new
-    s_currentHealthPickup = SpawnPickupAtPosition(healthPos, PICKUP_ON_STREET, 1362, 50);
-    s_currentArmorPickup = SpawnPickupAtPosition(armorPos, PICKUP_ON_STREET, 1364, 50);
+    s_currentHealthPickup = SpawnPickupAtPosition(healthPos, PICKUP_ONCE, 1362, 50);
+    s_currentArmorPickup = SpawnPickupAtPosition(armorPos, PICKUP_ONCE, 1364, 50);
 
     s_wave2Completed = true;
 
     DebugLog::Write("Wave 2: Health+Armor spawned, separation=%.1f",
         Dist2D(healthPos, armorPos));
 }
-
-//CVector WaveManager::FindPickupPositionInTerritory(const Territory* territory, CPickup* avoidPickup) {
-//    if (!territory) return CVector(0, 0, 0);
-//
-//    CPlayerPed* player = CWorld::Players[0].m_pPed;
-//    if (!player) return CVector(0, 0, 0);
-//
-//    CVector playerPos = player->GetPosition();
-//    CVector avoidPos = avoidPickup ? avoidPickup->m_vecPos : CVector(0, 0, 0);
-//
-//    // Debug logging
-//    DebugLog::Write("FindPickup: player at (%.1f, %.1f), territory bounds (%.1f-%.1f, %.1f-%.1f)",
-//        playerPos.x, playerPos.y,
-//        territory->minX, territory->maxX, territory->minY, territory->maxY);
-//
-//    // SA: Try 20 random positions around player (8-20m radius)
-//    for (int attempt = 0; attempt < 20; attempt++) {
-//        float angle = plugin::RandomNumberInRange(0.0f, 6.283185f);
-//        float distance = plugin::RandomNumberInRange(8.0f, 20.0f);
-//
-//        CVector candidate;
-//        candidate.x = playerPos.x + cosf(angle) * distance;
-//        candidate.y = playerPos.y + sinf(angle) * distance;
-//        candidate.z = playerPos.z;
-//
-//        // Must be inside territory bounds
-//        if (candidate.x < territory->minX || candidate.x > territory->maxX ||
-//            candidate.y < territory->minY || candidate.y > territory->maxY) {
-//            if (attempt % 5 == 0) {
-//                DebugLog::Write("  Attempt %d: Outside territory bounds", attempt);
-//            }
-//            continue;
-//        }
-//
-//        // Avoid other pickup (8m minimum)
-//        if (avoidPickup) {
-//            float distToAvoid = Dist2D(candidate, avoidPos);
-//            if (distToAvoid < 8.0f) {
-//                if (attempt % 5 == 0) {
-//                    DebugLog::Write("  Attempt %d: Too close to other pickup (%.1fm)", attempt, distToAvoid);
-//                }
-//                continue;
-//            }
-//        }
-//
-//        // Find ground Z
-//        float groundZ;
-//        if (!WaveSpawning::FindGroundZForCoord(candidate.x, candidate.y, candidate.z + 50.0f, groundZ)) {
-//            if (attempt % 5 == 0) {
-//                DebugLog::Write("  Attempt %d: No ground found", attempt);
-//            }
-//            continue;
-//        }
-//        candidate.z = groundZ + 0.5f;
-//
-//        // SA-ACCURATE COLLISION CHECK: Only check buildings/world, NOT vehicles
-//        // Parameters: (pos, radius, entity, buildings, vehicles, peds, objects, dummies, seeThrough, ignoreSomeObjects)
-//        if (CWorld::TestSphereAgainstWorld(candidate, 0.6f, nullptr,
-//            true,   // Check buildings (yes)
-//            false,  // Check vehicles (NO - key change)
-//            false,  // Check peds (NO)
-//            false,  // Check objects (NO)
-//            false,  // Check dummies (NO)
-//            false)) // See through (NO)
-//        {
-//            if (attempt % 5 == 0) {
-//                DebugLog::Write("  Attempt %d: Collision detected", attempt);
-//            }
-//            continue;
-//        }
-//
-//        // Valid position found
-//        DebugLog::Write("  SUCCESS at attempt %d: (%.1f, %.1f, %.1f)",
-//            attempt, candidate.x, candidate.y, candidate.z);
-//        return candidate;
-//    }
-//
-//    // FALLBACK 1: Territory center
-//    DebugLog::Write("All 20 attempts failed, using territory center fallback");
-//    CVector center;
-//    center.x = (territory->minX + territory->maxX) * 0.5f;
-//    center.y = (territory->minY + territory->maxY) * 0.5f;
-//    center.z = 100.0f;
-//
-//    float groundZ;
-//    if (WaveSpawning::FindGroundZForCoord(center.x, center.y, center.z, groundZ)) {
-//        center.z = groundZ + 0.5f;
-//        return center;
-//    }
-//
-//    // FALLBACK 2: Near player with random offset
-//    DebugLog::Write("Territory center fallback failed, using near-player fallback");
-//    CVector nearPlayer = playerPos;
-//    nearPlayer.x += plugin::RandomNumberInRange(-15.0f, 15.0f);
-//    nearPlayer.y += plugin::RandomNumberInRange(-15.0f, 15.0f);
-//
-//    if (WaveSpawning::FindGroundZForCoord(nearPlayer.x, nearPlayer.y, nearPlayer.z + 50.0f, groundZ)) {
-//        nearPlayer.z = groundZ + 0.5f;
-//        return nearPlayer;
-//    }
-//
-//    // FALLBACK 3: Player position
-//    DebugLog::Write("WARNING: All pickup position attempts failed, using player position");
-//    return playerPos;
-//}
 
 CVector WaveManager::FindPickupPositionInTerritory(const Territory* territory, CPickup* avoidPickup) {
     if (!territory) return CVector(0, 0, 0);
@@ -791,7 +686,7 @@ void WaveManager::CleanupPickup(CPickup*& pickup) {
 
             if (pickup->m_pObject) {
                 CWorld::Remove(pickup->m_pObject);
-                delete pickup->m_pObject;
+                // delete pickup->m_pObject;
                 pickup->m_pObject = nullptr;
             }
 
