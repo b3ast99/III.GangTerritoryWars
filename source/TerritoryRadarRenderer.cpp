@@ -1,6 +1,7 @@
 #include "TerritoryRadarRenderer.h"
 #include "TerritorySystem.h"
 #include "IniConfig.h"
+#include "DebugLog.h"
 
 #include "CRadar.h"
 #include "CTimer.h"
@@ -27,6 +28,7 @@ namespace {
         unsigned char colorG = 15;
         unsigned char colorB = 15;
         unsigned int lastLoadTime = 0;
+        bool liveReload = true;
         bool initialized = false;
     };
 
@@ -42,17 +44,20 @@ namespace {
         gFlashConfig.colorR = ini.GetInt("AttackFlash", "ColorR", 210);
         gFlashConfig.colorG = ini.GetInt("AttackFlash", "ColorG", 25);
         gFlashConfig.colorB = ini.GetInt("AttackFlash", "ColorB", 25);
+        gFlashConfig.liveReload = ini.GetInt("AttackFlash", "LiveReload", 1) != 0;
 
         gFlashConfig.lastLoadTime = CTimer::m_snTimeInMilliseconds;
         gFlashConfig.initialized = true;
     }
 
-    // Reload config every ~500ms to allow live tuning
+    // Reload config every ~500ms to allow live tuning (can be disabled via INI setting to boost performance)
     static void RefreshConfigIfNeeded() {
         if (!gFlashConfig.initialized) {
             LoadFlashConfig();
             return;
         }
+
+        if (!gFlashConfig.liveReload) return;
 
         unsigned int now = CTimer::m_snTimeInMilliseconds;
         if (now - gFlashConfig.lastLoadTime > 500) {
@@ -191,13 +196,14 @@ namespace {
     {
         if (poly.size() < 3) return;
 
-        // Centroid fan triangulation.
+        // Centroid fan triangulation (unchanged).
         CVector2D c(0.0f, 0.0f);
         for (const auto& p : poly) { c.x += p.x; c.y += p.y; }
         c.x /= (float)poly.size();
         c.y /= (float)poly.size();
 
-        std::vector<RwIm2DVertex> verts;
+        // Reuse buffer to avoid per-call heap churn.
+        static std::vector<RwIm2DVertex> verts;
         verts.resize(poly.size() * 3);
 
         size_t o = 0;
@@ -213,11 +219,12 @@ namespace {
         RwIm2DRenderPrimitive(rwPRIMTYPETRILIST, verts.data(), (RwInt32)verts.size());
     }
 
+
     static void DrawPolyOutline(const std::vector<CVector2D>& poly, const CRGBA& border)
     {
         if (poly.size() < 2) return;
 
-        std::vector<RwIm2DVertex> verts;
+        static std::vector<RwIm2DVertex> verts;
         verts.resize(poly.size() * 2);
 
         size_t o = 0;
@@ -274,6 +281,80 @@ namespace {
 
         outRadiusPx = std::min(gRadarRxPx, gRadarRyPx);
     }
+
+    // -------------------------------
+// Per-frame radar cache (no visual change)
+// -------------------------------
+    struct RadarFrameCache {
+        CVector2D center{};
+        float rx = 0.0f;
+        float ry = 0.0f;
+
+        // Using EXACT same inset + seg count as current code.
+        float fillRx = 0.0f;
+        float fillRy = 0.0f;
+        int segs = 96;
+
+        std::vector<CVector2D> fillEllipseLocal; // CCW, centered at origin
+    };
+
+    static RadarFrameCache gRadarCache;
+    static unsigned int s_cacheUpdates = 0;
+    static unsigned int s_ellipseRebuilds = 0;
+    static unsigned int s_drawTerritoryCalls = 0;
+    static unsigned int s_lastPerfLogMs = 0;
+
+    static std::vector<CVector2D> MakeEllipsePolyLocal(float rx, float ry, int segs)
+    {
+        segs = std::clamp(segs, 24, 160);
+
+        std::vector<CVector2D> c;
+        c.reserve(segs);
+
+        // CCW ellipse polygon (center at origin).
+        for (int i = 0; i < segs; ++i) {
+            const float t = (2.0f * kPi) * ((float)i / (float)segs);
+            c.push_back(CVector2D(rx * std::cos(t), ry * std::sin(t)));
+        }
+
+        return c;
+    }
+
+    static void UpdateRadarCache()
+    {
+        ++s_cacheUpdates; // DEBUG
+        float unusedRadius = 0.0f;
+        GetRadarCircleScreen(gRadarCache.center, unusedRadius);
+
+        gRadarCache.rx = gRadarRxPx;
+        gRadarCache.ry = gRadarRyPx;
+
+        const float kFillInsetPx = 5.0f;
+        gRadarCache.fillRx = std::max(0.0f, gRadarCache.rx - kFillInsetPx);
+        gRadarCache.fillRy = std::max(0.0f, gRadarCache.ry - kFillInsetPx);
+        gRadarCache.segs = 96;
+
+        // Keep the “changed radii” test if you like
+        static float s_lastFillRx = -1.0f;
+        static float s_lastFillRy = -1.0f;
+        static int   s_lastSegs = -1;
+
+        const float eps = 0.01f;
+        if (std::fabs(gRadarCache.fillRx - s_lastFillRx) > eps ||
+            std::fabs(gRadarCache.fillRy - s_lastFillRy) > eps ||
+            gRadarCache.segs != s_lastSegs)
+        {
+            s_lastFillRx = gRadarCache.fillRx;
+            s_lastFillRy = gRadarCache.fillRy;
+            s_lastSegs = gRadarCache.segs;
+
+            gRadarCache.fillEllipseLocal =
+                MakeEllipsePolyLocal(gRadarCache.fillRx, gRadarCache.fillRy, gRadarCache.segs);
+            ++s_ellipseRebuilds;
+        }
+    }
+
+
 
     // -------------------------------
     // Convex polygon clipping (Sutherland–Hodgman)
@@ -359,31 +440,19 @@ namespace {
         return (clean.size() >= 3) ? clean : std::vector<CVector2D>{};
     }
 
-    static std::vector<CVector2D> MakeEllipsePolyLocal(float rx, float ry, int segs)
-    {
-        segs = std::clamp(segs, 24, 160);
 
-        std::vector<CVector2D> c;
-        c.reserve(segs);
-
-        // CCW ellipse polygon (center at origin).
-        for (int i = 0; i < segs; ++i) {
-            const float t = (2.0f * kPi) * ((float)i / (float)segs);
-            c.push_back(CVector2D(rx * std::cos(t), ry * std::sin(t)));
-        }
-
-        return c;
-    }
 
     // -------------------------------
     // Per-territory render
     // -------------------------------
     static void DrawRadarTerritory(const Territory& t, const CRGBA& fill)
     {
+        ++s_drawTerritoryCalls; // DEBUG
         const float x1 = t.minX;
         const float y1 = t.minY;
         const float x2 = t.maxX;
         const float y2 = t.maxY;
+
 
         CVector2D s0, s1, s2, s3;
         WorldToRadarScreen(x1, y1, s0);
@@ -391,31 +460,22 @@ namespace {
         WorldToRadarScreen(x2, y2, s2);
         WorldToRadarScreen(x1, y2, s3);
 
-        const std::vector<CVector2D> quad = { s0, s1, s2, s3 };
+        // Reuse buffers (no allocations per territory)
+        static std::vector<CVector2D> quadLocal;
+        static std::vector<CVector2D> clippedScreen;
 
-        CVector2D center;
-        float unusedRadius = 0.0f;
-        GetRadarCircleScreen(center, unusedRadius);
+        quadLocal.clear();
+        quadLocal.reserve(4);
 
-        const float rx = gRadarRxPx;
-        const float ry = gRadarRyPx;
-
-        // Tunables (these are what actually stop bleed reliably).
-        const float kFillInsetPx = 5.0f;
-        const float kOutlineInsetPx = 3.0f;
-
-        const float fillRx = std::max(0.0f, rx - kFillInsetPx);
-        const float fillRy = std::max(0.0f, ry - kFillInsetPx);
-
-        const float outlineRx = std::max(0.0f, rx - kOutlineInsetPx);
-        const float outlineRy = std::max(0.0f, ry - kOutlineInsetPx);
+        const CVector2D& center = gRadarCache.center;
 
         // Quad in LOCAL space relative to radar center.
-        std::vector<CVector2D> quadLocal;
-        quadLocal.reserve(4);
-        for (const auto& p : quad) quadLocal.push_back(Sub(p, center));
+        quadLocal.push_back(Sub(s0, center));
+        quadLocal.push_back(Sub(s1, center));
+        quadLocal.push_back(Sub(s2, center));
+        quadLocal.push_back(Sub(s3, center));
 
-        // Ensure quad is CCW (ClipConvexCCW expects CCW).
+        // Ensure quad is CCW (ClipConvexCCW expects CCW). (unchanged)
         auto PolyArea2 = [](const std::vector<CVector2D>& p) {
             float a = 0.0f;
             for (size_t i = 0; i < p.size(); ++i) {
@@ -427,29 +487,49 @@ namespace {
             };
         if (PolyArea2(quadLocal) < 0.0f) std::reverse(quadLocal.begin(), quadLocal.end());
 
-        const int kSegs = 96;
+        // Check ellipse is not empty
+        if (gRadarCache.fillEllipseLocal.size() < 3) return;
 
-        // Fill clip
-        const std::vector<CVector2D> fillEllipse = MakeEllipsePolyLocal(fillRx, fillRy, kSegs);
-        const std::vector<CVector2D> clippedLocal = ClipConvexCCW(quadLocal, fillEllipse);
+        // Fill clip (same ellipse poly, same segs, same clip code)
+        const std::vector<CVector2D> clippedLocal = ClipConvexCCW(quadLocal, gRadarCache.fillEllipseLocal);
         if (clippedLocal.size() < 3) return;
 
-        std::vector<CVector2D> clippedScreen;
+        clippedScreen.clear();
         clippedScreen.reserve(clippedLocal.size());
         for (const auto& p : clippedLocal) clippedScreen.push_back(Add(p, center));
 
         DrawPolyFilledFan(clippedScreen, fill);
     }
 
+
 } // namespace
 
 void TerritoryRadarRenderer::DrawRadarOverlay(const std::vector<Territory>& territories)
 {
-    // Check for config updates at the start of each frame
+
     RefreshConfigIfNeeded();
-    // (Player position not currently used; leaving CWorld include out keeps this file lean.)
+    UpdateRadarCache();
+
     for (const auto& t : territories) {
         const CRGBA fill = RGBAForOwner(t.ownerGang, t.underAttack, t.defenseLevel);
         DrawRadarTerritory(t, fill);
+    }
+
+    unsigned int now = CTimer::m_snTimeInMilliseconds;
+    if (now - s_lastPerfLogMs >= 2500) {
+        s_lastPerfLogMs = now;
+
+        DebugLog::Write(
+            "[RadarPerf] territories=%zu drawCalls=%u cacheUpdates=%u ellipseRebuilds=%u",
+            territories.size(),
+            s_drawTerritoryCalls,
+            s_cacheUpdates,
+            s_ellipseRebuilds
+        );
+
+        // Reset counters for next window
+        s_drawTerritoryCalls = 0;
+        s_cacheUpdates = 0;
+        s_ellipseRebuilds = 0;
     }
 }
