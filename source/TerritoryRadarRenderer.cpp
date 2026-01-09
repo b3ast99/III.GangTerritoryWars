@@ -253,7 +253,6 @@ namespace {
             SetIm2DVertex(verts[o++], b.x, b.y, fill);
         }
 
-        SetRenderStateForOverlay();
         RwIm2DRenderPrimitive(rwPRIMTYPETRILIST, verts.data(), (RwInt32)verts.size());
     }
 
@@ -273,7 +272,6 @@ namespace {
             SetIm2DVertex(verts[o++], b.x, b.y, border);
         }
 
-        SetRenderStateForOverlay();
         RwIm2DRenderPrimitive(rwPRIMTYPELINELIST, verts.data(), (RwInt32)verts.size());
     }
 
@@ -594,6 +592,9 @@ void TerritoryRadarRenderer::DrawRadarOverlay(const std::vector<Territory>& terr
         s_nextRadarCacheMs = now + 80; // ~12.5 Hz
         UpdateRadarCache();
     }
+
+    // Set overlay draw state once per frame
+    SetRenderStateForOverlay();
 
     for (const auto& t : territories) {
         const CRGBA fill = RGBAForOwner(t.ownerGang, t.underAttack, t.defenseLevel);
