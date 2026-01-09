@@ -2,6 +2,7 @@
 #include "TerritorySystem.h"
 #include "IniConfig.h"
 #include "DebugLog.h"
+#include "WaveManager.h"
 
 #include "CRadar.h"
 #include "CTimer.h"
@@ -596,10 +597,21 @@ void TerritoryRadarRenderer::DrawRadarOverlay(const std::vector<Territory>& terr
     // Set overlay draw state once per frame
     SetRenderStateForOverlay();
 
+    const bool warActive = WaveManager::IsWarActive();
+    const Territory* active = WaveManager::GetActiveTerritory();
+
     for (const auto& t : territories) {
-        const CRGBA fill = RGBAForOwner(t.ownerGang, t.underAttack, t.defenseLevel);
+
+        // Flash ONLY the active war territory.
+        const bool shouldFlash =
+            warActive &&
+            active &&
+            (t.id == active->id);
+
+        const CRGBA fill = RGBAForOwner(t.ownerGang, shouldFlash, t.defenseLevel);
         DrawRadarTerritory(t, fill);
     }
+
 
     RestoreRenderState(rs);
 

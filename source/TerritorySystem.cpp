@@ -1,13 +1,13 @@
 #include "TerritorySystem.h"
+#include "TerritoryRadarRenderer.h"
 #include "DebugLog.h"
+#include "WaveManager.h"
 
 #include "CRadar.h"
 #include "CWorld.h"
 #include "CPlayerPed.h"
 #include "CMessages.h"
 #include "CTimer.h"
-
-#include "TerritoryRadarRenderer.h"
 
 #include <cstdio>
 #include <algorithm>
@@ -331,6 +331,12 @@ void TerritorySystem::TryReloadNow(bool showToastOnFail) {
         return;
     }
 
+    if (WaveManager::IsWarActive()) {
+        DebugLog::Write("TerritorySystem: hot reload during war -> cancel war");
+        WaveManager::CancelWar();
+    }
+
+
     // Swap in the new geometry/defaults from file…
     s_territories.swap(next);
 
@@ -482,6 +488,12 @@ void TerritorySystem::GetOwnershipState(std::vector<OwnershipEntry>& out) {
 void TerritorySystem::ClearAllWarsAndTransientState() {
     for (auto& t : s_territories) {
         t.underAttack = false;
+
+        // If we ever add any other runtime-only fields, clear them here too.
+        // t.attackStartMs = 0;
+        // t.lastWarEndMs = 0;
+        // t.pendingCapture = false;
+        // etc...
     }
 }
 
