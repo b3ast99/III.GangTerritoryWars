@@ -1,9 +1,10 @@
 #include "TerritoryPersistence.h"
 #include "HookUtil.h"
-
 #include "TerritorySystem.h"
 #include "WaveManager.h"
+#include "PedDeathTracker.h"
 #include "DebugLog.h"
+
 #include "CTimer.h"
 #include "CMenuManager.h"
 
@@ -127,12 +128,13 @@ static bool IsLoadFlow()
 {
     if (!FrontEndMenuManager.m_bMenuActive) return false;
 
+    // The only reliable signals:
+    // 1) user confirmed load (m_bWantToLoad)
+    // 2) game is actively loading (LOADING_IN_PROGRESS)
     if (FrontEndMenuManager.m_bWantToLoad) return true;
 
     const int p = FrontEndMenuManager.m_nCurrentMenuPage;
-    return p == MENUPAGE_CHOOSE_LOAD_SLOT
-        || p == MENUPAGE_LOAD_SLOT_CONFIRM
-        || p == MENUPAGE_LOADING_IN_PROGRESS;
+    return p == MENUPAGE_LOADING_IN_PROGRESS;
 }
 
 static bool IsSaveFlow()
@@ -376,8 +378,14 @@ FILESTREAM __cdecl TerritoryPersistence::OpenFileHook(const char* filePath, cons
     const unsigned int now = CTimer::m_snTimeInMilliseconds;
 
     if (isRead) {
-        if (FrontEndMenuManager.m_bMenuActive && FrontEndMenuManager.m_bWantToLoad) {
+        const bool menuActive = FrontEndMenuManager.m_bMenuActive;
 
+        // If menu is active, only arm loads when the user actually confirmed loading.
+        // If menu is NOT active, this is almost certainly a quickload/reload and must be treated as real.
+        const bool shouldArm = menuActive? (FrontEndMenuManager.m_bWantToLoad != 0) : true;
+
+
+        if (shouldArm) {
             if (slot == s_lastArmedLoadSlot && (now - s_lastArmedLoadMs) < 250) {
                 // duplicate OpenFile during same load; ignore
             }
@@ -386,9 +394,12 @@ FILESTREAM __cdecl TerritoryPersistence::OpenFileHook(const char* filePath, cons
                 s_lastArmedLoadMs = now;
 
                 willLoad = true;
-                DebugLog::Write("TerritoryPersistence: arm LOAD slot %d (page=%d wantLoad=%d)",
-                    slot, FrontEndMenuManager.m_nCurrentMenuPage,
-                    (int)FrontEndMenuManager.m_bWantToLoad);
+                DebugLog::Write("TerritoryPersistence: arm LOAD slot %d (menuActive=%d page=%d wantLoad=%d shouldArm=%d)",
+                    slot,
+                    menuActive ? 1 : 0,
+                    FrontEndMenuManager.m_nCurrentMenuPage,
+                    (int)FrontEndMenuManager.m_bWantToLoad,
+                    shouldArm ? 1 : 0);
             }
         }
     }
@@ -441,15 +452,22 @@ void TerritoryPersistence::OnSaveCompleted(int slot) {
     s_pendingWriteSlot = slot;
 }
 
-void TerritoryPersistence::OnLoadCompleted(int slot) {
-    if (!IsLoadFlow()) {
+void TerritoryPersistence::OnLoadCompleted(int slot)
+{
+    // Ignore menu preview reads (the thing you used to guard against).
+    // But allow quickload/reload when menu isn't active.
+    if (FrontEndMenuManager.m_bMenuActive && !IsLoadFlow()) {
         DebugLog::Write("TerritoryPersistence: OnLoadCompleted ignored (not load flow)");
         return;
     }
 
-    if (WaveManager::IsWarActive()) {
-        WaveManager::CancelWar();
-    }
+    DebugLog::Write("TerritoryPersistence: load completed slot %d -> clearing war/transient", slot);
+
+    // Prevent cleanup/deletion from generating kill credit + trigger spam
+    PedDeathTracker::SuppressKillCreditFor(1000);
+
+    WaveManager::CancelWar();
+    TerritorySystem::ClearAllWarsAndTransientState();
 
     s_pendingApplySlot = slot;
 }
@@ -661,7 +679,8 @@ void TerritoryPersistence::LoadSidecarAndApply(int slot) {
 
     TerritorySystem::ResetOwnershipToDefaults();
     TerritorySystem::ApplyOwnershipState(entries);
-    TerritorySystem::ClearAllWarsAndTransientState();
+
+    // DO NOT clear transient here; it was cleared at OnLoadCompleted()
 
     DebugLog::Write("TerritoryPersistence: applied slot %d entries=%d", slot, (int)entries.size());
 }

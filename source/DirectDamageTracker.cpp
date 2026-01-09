@@ -40,6 +40,14 @@ void DirectDamageTracker::RecordDamage(CPed* victim, CPed* attacker, float damag
     }
 }
 
+static inline bool IsRecent(unsigned int now, unsigned int then, unsigned int windowMs)
+{
+    // If time went backwards (load), treat as NOT recent.
+    if (now < then) return false;
+    return (now - then) <= windowMs;
+}
+
+
 bool DirectDamageTracker::DidPlayerKillPed(CPed* ped)
 {
     if (!ped) return false;
@@ -55,7 +63,7 @@ bool DirectDamageTracker::DidPlayerKillPed(CPed* ped)
     float player = 0.0f;
 
     for (const auto& r : records) {
-        if (now - r.timestamp <= 4000) { // last 4 seconds
+        if (IsRecent(now, r.timestamp, 4000)) {
             total += r.damage;
             if (r.bPlayerWasAttacker) player += r.damage;
         }
@@ -94,7 +102,11 @@ void DirectDamageTracker::CleanupOldRecords()
         // Cull old records
         recs.erase(
             std::remove_if(recs.begin(), recs.end(),
-                [now](const DamageRecord& r) { return (now - r.timestamp) > 12000; }),
+                [now](const DamageRecord& r) {
+                    // If time went backwards, drop it.
+                    if (now < r.timestamp) return true;
+                    return (now - r.timestamp) > 12000;
+                }),
             recs.end()
         );
 
@@ -113,7 +125,7 @@ void DirectDamageTracker::CleanupOldRecords()
 void DirectDamageTracker::Process()
 {
     const unsigned int now = CTimer::m_snTimeInMilliseconds;
-    if (now - s_lastCleanupTime > 3000) {
+    if (now < s_lastCleanupTime || (now - s_lastCleanupTime) > 3000) {
         CleanupOldRecords();
     }
 }
