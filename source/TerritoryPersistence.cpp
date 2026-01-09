@@ -13,6 +13,7 @@
 #include <cctype>
 #include <vector>
 #include <direct.h>
+#include <algorithm>
 
 // ------------------------------------------------------------
 // Static state
@@ -35,10 +36,38 @@ static unsigned int s_lastAppliedMs = 0;
 static int s_lastSavedSlot = -1;
 static unsigned int s_lastSavedMs = 0;
 
+static int s_lastArmedLoadSlot = -1;
+static unsigned int s_lastArmedLoadMs = 0;
 
+static int s_lastArmedSaveSlot = -1;
+static unsigned int s_lastArmedSaveMs = 0;
+
+// ------------------------------------------------------------
 // Sidecar format
+// ------------------------------------------------------------
+//
+// v1 (legacy, already in the wild):
+//   [u32 magic 'GTW1'][u32 ver=1][u32 count] then repeated:
+//     [u16 idLen][idBytes][u32 ownerGang]
+//
+// v2+ (chunked):
+//   [u32 magic 'GTW1'][u32 ver>=2][u32 chunkCount] then repeated:
+//     [u32 tag][u32 payloadLen][payloadBytes...]
+//
+// Chunks we define now:
+//   'OWNR' - ownership snapshot (same content as v1, inside payload):
+//     [u32 count] then repeated: [u16 idLen][idBytes][u32 ownerGang]
+//
+// Unknown chunks are skipped.
+// Missing OWNR chunk => fallback to defaults.
+//
+// ------------------------------------------------------------
+
 static const unsigned int kMagic = 0x31575447; // 'GTW1'
-static const unsigned int kVersion = 1;
+static const unsigned int kLegacyVersion = 1;
+static const unsigned int kChunkedVersion = 2; // what we WRITE going forward
+
+static const unsigned int kTag_OWNR = 0x524E574F; // 'OWNR' little-endian
 
 static void PushU32(std::vector<unsigned char>& out, unsigned int v) {
     out.push_back((unsigned char)(v & 0xFF));
@@ -54,6 +83,18 @@ static bool ReadU32(const std::vector<unsigned char>& b, size_t& i, unsigned int
         | ((unsigned int)b[i + 2] << 16)
         | ((unsigned int)b[i + 3] << 24);
     i += 4;
+    return true;
+}
+
+static void PushU16(std::vector<unsigned char>& out, unsigned short v) {
+    out.push_back((unsigned char)(v & 0xFF));
+    out.push_back((unsigned char)((v >> 8) & 0xFF));
+}
+
+static bool ReadU16(const std::vector<unsigned char>& b, size_t& i, unsigned short& v) {
+    if (i + 2 > b.size()) return false;
+    v = (unsigned short)b[i] | ((unsigned short)b[i + 1] << 8);
+    i += 2;
     return true;
 }
 
@@ -73,12 +114,11 @@ static void LogOwnershipEntries(const char* tag, const std::vector<TerritorySyst
     DebugLog::Write("%s: entries=%d, 1001_found=%d, 1001_owner=%d",
         tag, (int)entries.size(), found1001, owner1001);
 
-    // Optional: dump all (only 8 territories so its fine)
+    // Optional: dump all (small counts)
     for (const auto& e : entries) {
         DebugLog::Write("%s: id=%s owner=%d", tag, e.id.c_str(), e.ownerGang);
     }
 }
-
 
 // ------------------------------------------------------------
 // Front-end flow gating (prevents menu preview reads from applying)
@@ -188,7 +228,6 @@ bool TerritoryPersistence::TryParseSaveSlotFromPath(const char* filePath, int& o
 
     outSlot = slot;
     return true;
-
 }
 
 // ------------------------------------------------------------
@@ -293,7 +332,8 @@ void TerritoryPersistence::Process() {
 
             if (slot == s_lastAppliedSlot && (now - s_lastAppliedMs) < 1500) {
                 DebugLog::Write("TerritoryPersistence: skip duplicate apply slot %d", slot);
-            } else {
+            }
+            else {
                 s_lastAppliedSlot = slot;
                 s_lastAppliedMs = now;
                 LoadSidecarAndApply(slot);
@@ -307,7 +347,8 @@ void TerritoryPersistence::Process() {
 
         if (slot == s_lastSavedSlot && (now - s_lastSavedMs) < 1500) {
             DebugLog::Write("TerritoryPersistence: skip duplicate save slot %d", slot);
-        } else {
+        }
+        else {
             s_lastSavedSlot = slot;
             s_lastSavedMs = now;
             SaveSidecar(slot);
@@ -332,32 +373,45 @@ FILESTREAM __cdecl TerritoryPersistence::OpenFileHook(const char* filePath, cons
     bool willLoad = false;
     bool willSave = false;
 
+    const unsigned int now = CTimer::m_snTimeInMilliseconds;
+
     if (isRead) {
-        // Only arm load if the game is actually intending to load (strongest signal).
         if (FrontEndMenuManager.m_bMenuActive && FrontEndMenuManager.m_bWantToLoad) {
-            willLoad = true;
-            DebugLog::Write("TerritoryPersistence: arm LOAD slot %d (page=%d wantLoad=%d)",
-                slot, FrontEndMenuManager.m_nCurrentMenuPage, (int)FrontEndMenuManager.m_bWantToLoad);
-        }
-        else {
-            DebugLog::Write("TerritoryPersistence: ignore read slot %d (not load intent, page=%d)",
-                slot, FrontEndMenuManager.m_nCurrentMenuPage);
+
+            if (slot == s_lastArmedLoadSlot && (now - s_lastArmedLoadMs) < 250) {
+                // duplicate OpenFile during same load; ignore
+            }
+            else {
+                s_lastArmedLoadSlot = slot;
+                s_lastArmedLoadMs = now;
+
+                willLoad = true;
+                DebugLog::Write("TerritoryPersistence: arm LOAD slot %d (page=%d wantLoad=%d)",
+                    slot, FrontEndMenuManager.m_nCurrentMenuPage,
+                    (int)FrontEndMenuManager.m_bWantToLoad);
+            }
         }
     }
 
-
     if (isWrite) {
-        // This is the safest signal for actual saving, but we'll also log if it doesn't look like save flow.
-        if (IsSaveFlow()) {
-            willSave = true;
-            DebugLog::Write("TerritoryPersistence: arm SAVE slot %d (page=%d saveMenu=%d)",
-                slot, FrontEndMenuManager.m_nCurrentMenuPage, (int)FrontEndMenuManager.m_bSaveMenuActive);
+        // Dedupe: some flows can open/write the same slot multiple times quickly.
+        if (slot == s_lastArmedSaveSlot && (now - s_lastArmedSaveMs) < 250) {
+            // intentionally quiet
         }
         else {
-            // Still track it; some builds can write outside obvious menu pages.
+            s_lastArmedSaveSlot = slot;
+            s_lastArmedSaveMs = now;
+
+            // This is the safest signal for actual saving, but we'll also log if it doesn't look like save flow.
             willSave = true;
-            DebugLog::Write("TerritoryPersistence: arm SAVE slot %d (write mode but not save flow, page=%d)",
-                slot, FrontEndMenuManager.m_nCurrentMenuPage);
+            if (IsSaveFlow()) {
+                DebugLog::Write("TerritoryPersistence: arm SAVE slot %d (page=%d saveMenu=%d)",
+                    slot, FrontEndMenuManager.m_nCurrentMenuPage, (int)FrontEndMenuManager.m_bSaveMenuActive);
+            }
+            else {
+                DebugLog::Write("TerritoryPersistence: arm SAVE slot %d (write mode but not save flow, page=%d)",
+                    slot, FrontEndMenuManager.m_nCurrentMenuPage);
+            }
         }
     }
 
@@ -367,6 +421,7 @@ FILESTREAM __cdecl TerritoryPersistence::OpenFileHook(const char* filePath, cons
 
     return h;
 }
+
 
 int __cdecl TerritoryPersistence::CloseFileHook(FILESTREAM fileHandle)
 {
@@ -387,7 +442,6 @@ void TerritoryPersistence::OnSaveCompleted(int slot) {
 }
 
 void TerritoryPersistence::OnLoadCompleted(int slot) {
-    // Extra guard in case something weird calls into us:
     if (!IsLoadFlow()) {
         DebugLog::Write("TerritoryPersistence: OnLoadCompleted ignored (not load flow)");
         return;
@@ -398,6 +452,48 @@ void TerritoryPersistence::OnLoadCompleted(int slot) {
     }
 
     s_pendingApplySlot = slot;
+}
+
+// ------------------------------------------------------------
+// Parsing helpers
+// ------------------------------------------------------------
+static bool ParseOwnershipPayload(
+    const std::vector<unsigned char>& bytes,
+    size_t& i,
+    std::vector<TerritorySystem::OwnershipEntry>& outEntries,
+    std::string& outErr)
+{
+    outEntries.clear();
+
+    unsigned int count = 0;
+    if (!ReadU32(bytes, i, count)) { outErr = "OWNR: missing count"; return false; }
+    if (count > 4096) { outErr = "OWNR: count too large"; return false; }
+
+    outEntries.reserve(count);
+
+    for (unsigned int n = 0; n < count; ++n) {
+        unsigned short len = 0;
+        if (!ReadU16(bytes, i, len)) { outErr = "OWNR: missing idLen"; return false; }
+        if (i + len > bytes.size()) { outErr = "OWNR: id bytes out of range"; return false; }
+
+        TerritorySystem::OwnershipEntry e;
+        e.id.assign((const char*)&bytes[i], (size_t)len);
+        i += len;
+
+        unsigned int ownerU = 0;
+        if (!ReadU32(bytes, i, ownerU)) { outErr = "OWNR: missing owner"; return false; }
+
+        e.ownerGang = (int)ownerU;
+        outEntries.push_back(e);
+    }
+
+    // Must match declared count
+    if (outEntries.size() != count) {
+        outErr = "OWNR: parsed count mismatch";
+        return false;
+    }
+
+    return true;
 }
 
 // ------------------------------------------------------------
@@ -439,47 +535,123 @@ void TerritoryPersistence::LoadSidecarAndApply(int slot) {
     }
 
     size_t i = 0;
-    unsigned int magic = 0, ver = 0, count = 0;
-    if (!ReadU32(bytes, i, magic) || !ReadU32(bytes, i, ver) || !ReadU32(bytes, i, count)) {
+    unsigned int magic = 0, ver = 0;
+    if (!ReadU32(bytes, i, magic) || !ReadU32(bytes, i, ver)) {
         DebugLog::Write("TerritoryPersistence: corrupt header slot %d", slot);
         TerritorySystem::ResetOwnershipToDefaults();
         TerritorySystem::ClearAllWarsAndTransientState();
         return;
     }
 
-    if (magic != kMagic || ver != kVersion || count > 4096) {
-        DebugLog::Write("TerritoryPersistence: bad magic/ver slot %d", slot);
+    if (magic != kMagic) {
+        DebugLog::Write("TerritoryPersistence: bad magic slot %d", slot);
         TerritorySystem::ResetOwnershipToDefaults();
         TerritorySystem::ClearAllWarsAndTransientState();
         return;
     }
 
     std::vector<TerritorySystem::OwnershipEntry> entries;
-    entries.reserve(count);
+    bool ok = false;
 
-    bool corrupt = false;
+    // -------------------------
+    // v1 legacy format
+    // -------------------------
+    if (ver == kLegacyVersion) {
+        unsigned int count = 0;
+        if (!ReadU32(bytes, i, count) || count > 4096) {
+            DebugLog::Write("TerritoryPersistence: v1 bad count slot %d", slot);
+            TerritorySystem::ResetOwnershipToDefaults();
+            TerritorySystem::ClearAllWarsAndTransientState();
+            return;
+        }
 
-    for (unsigned int n = 0; n < count; ++n) {
-        if (i + 2 > bytes.size()) { corrupt = true; break; }
+        entries.reserve(count);
 
-        unsigned short len = (unsigned short)bytes[i] | ((unsigned short)bytes[i + 1] << 8);
-        i += 2;
-        if (i + len > bytes.size()) { corrupt = true; break; }
+        bool corrupt = false;
+        for (unsigned int n = 0; n < count; ++n) {
+            unsigned short len = 0;
+            if (!ReadU16(bytes, i, len)) { corrupt = true; break; }
+            if (i + len > bytes.size()) { corrupt = true; break; }
 
-        TerritorySystem::OwnershipEntry e;
-        e.id.assign((const char*)&bytes[i], (size_t)len);
-        i += len;
+            TerritorySystem::OwnershipEntry e;
+            e.id.assign((const char*)&bytes[i], (size_t)len);
+            i += len;
 
-        unsigned int ownerU = 0;
-        if (!ReadU32(bytes, i, ownerU)) { corrupt = true; break; }
+            unsigned int ownerU = 0;
+            if (!ReadU32(bytes, i, ownerU)) { corrupt = true; break; }
 
-        e.ownerGang = (int)ownerU;
-        entries.push_back(e);
+            e.ownerGang = (int)ownerU;
+            entries.push_back(e);
+        }
+
+        if (!corrupt && entries.size() == count) {
+            ok = true;
+        }
+        else {
+            DebugLog::Write("TerritoryPersistence: v1 corrupt payload slot %d (parsed=%d expected=%u)",
+                slot, (int)entries.size(), count);
+        }
+    }
+    // -------------------------
+    // v2+ chunked format
+    // -------------------------
+    else if (ver >= kChunkedVersion) {
+        if (ver > kChunkedVersion) {
+            DebugLog::Write("TerritoryPersistence: sidecar version %u newer than supported %u (slot %d) - best effort",
+                ver, kChunkedVersion, slot);
+        }
+
+        unsigned int chunkCount = 0;
+        if (!ReadU32(bytes, i, chunkCount) || chunkCount > 64) {
+            DebugLog::Write("TerritoryPersistence: v2 bad chunkCount slot %d", slot);
+            TerritorySystem::ResetOwnershipToDefaults();
+            TerritorySystem::ClearAllWarsAndTransientState();
+            return;
+        }
+
+        bool foundOwnr = false;
+        std::string perr;
+
+        for (unsigned int c = 0; c < chunkCount; ++c) {
+            unsigned int tag = 0, len = 0;
+            if (!ReadU32(bytes, i, tag) || !ReadU32(bytes, i, len)) {
+                DebugLog::Write("TerritoryPersistence: v2 corrupt chunk header slot %d", slot);
+                break;
+            }
+
+            if (i + len > bytes.size()) {
+                DebugLog::Write("TerritoryPersistence: v2 chunk len out of range slot %d", slot);
+                break;
+            }
+
+            if (tag == kTag_OWNR) {
+                size_t pi = i;
+                perr.clear();
+                if (ParseOwnershipPayload(bytes, pi, entries, perr)) {
+                    foundOwnr = true;
+                    ok = true;
+                }
+                else {
+                    DebugLog::Write("TerritoryPersistence: v2 OWNR parse failed slot %d: %s", slot, perr.c_str());
+                }
+            }
+
+            // Skip payload (even if parsed) to continue scanning for other chunks later
+            i += len;
+        }
+
+        if (!foundOwnr) {
+            DebugLog::Write("TerritoryPersistence: v2 missing OWNR chunk slot %d", slot);
+            ok = false;
+        }
+    }
+    else {
+        DebugLog::Write("TerritoryPersistence: unknown sidecar version %u slot %d", ver, slot);
+        ok = false;
     }
 
-    if (corrupt || entries.size() != count) {
-        DebugLog::Write("TerritoryPersistence: corrupt payload slot %d (parsed=%d expected=%u)",
-            slot, (int)entries.size(), count);
+    if (!ok) {
+        DebugLog::Write("TerritoryPersistence: sidecar unusable slot %d -> defaults", slot);
         TerritorySystem::ResetOwnershipToDefaults();
         TerritorySystem::ClearAllWarsAndTransientState();
         return;
@@ -492,7 +664,6 @@ void TerritoryPersistence::LoadSidecarAndApply(int slot) {
     TerritorySystem::ClearAllWarsAndTransientState();
 
     DebugLog::Write("TerritoryPersistence: applied slot %d entries=%d", slot, (int)entries.size());
-
 }
 
 void TerritoryPersistence::SaveSidecar(int slot) {
@@ -510,20 +681,29 @@ void TerritoryPersistence::SaveSidecar(int slot) {
 
     LogOwnershipEntries("TerritoryPersistence: SAVE snapshot", entries);
 
+    // Build OWNR payload
+    std::vector<unsigned char> ownr;
+    ownr.reserve(8 + entries.size() * 16);
+
+    PushU32(ownr, (unsigned int)entries.size());
+    for (auto& e : entries) {
+        const unsigned short len = (unsigned short)e.id.size();
+        PushU16(ownr, len);
+        ownr.insert(ownr.end(), e.id.begin(), e.id.end());
+        PushU32(ownr, (unsigned int)e.ownerGang);
+    }
+
+    // Write container (v2 chunked)
     std::vector<unsigned char> out;
-    out.reserve(16 + entries.size() * 16);
+    out.reserve(16 + 8 + ownr.size());
 
     PushU32(out, kMagic);
-    PushU32(out, kVersion);
-    PushU32(out, (unsigned int)entries.size());
+    PushU32(out, kChunkedVersion);
+    PushU32(out, 1); // chunkCount
 
-    for (auto& e : entries) {
-        unsigned short len = (unsigned short)e.id.size();
-        out.push_back((unsigned char)(len & 0xFF));
-        out.push_back((unsigned char)((len >> 8) & 0xFF));
-        out.insert(out.end(), e.id.begin(), e.id.end());
-        PushU32(out, (unsigned int)e.ownerGang);
-    }
+    PushU32(out, kTag_OWNR);
+    PushU32(out, (unsigned int)ownr.size());
+    out.insert(out.end(), ownr.begin(), ownr.end());
 
     FILE* f = std::fopen(tmpPath, "wb");
     if (!f) {
@@ -547,5 +727,5 @@ void TerritoryPersistence::SaveSidecar(int slot) {
         return;
     }
 
-    DebugLog::Write("TerritoryPersistence: saved slot %d entries=%d", slot, (int)entries.size());
+    DebugLog::Write("TerritoryPersistence: saved slot %d entries=%d (v2 chunked)", slot, (int)entries.size());
 }
