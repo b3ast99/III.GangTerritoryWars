@@ -1,4 +1,3 @@
-// WaveManager.cpp (REFACTORED)
 #include "WaveManager.h"
 #include "WaveConfig.h"
 #include "WaveSpawning.h"
@@ -10,8 +9,10 @@
 #include "CPickups.h"
 #include "CTimer.h"
 #include "CWorld.h"
-#include "CPlayerPed.h"    // Added missing include
+#include "CPlayerPed.h"
 #include "plugin.h"
+
+#include <cmath>
 
 // Message timing constants
 static constexpr unsigned int WAVE_MESSAGE_DISPLAY_MS = 3000;
@@ -46,18 +47,17 @@ unsigned int WaveManager::s_nextClusterSpawnTime = 0;
 int WaveManager::s_enemiesSpawnedInWave = 0;
 
 // Pickups
-CPickup* WaveManager::s_currentHealthPickup = nullptr;
-CPickup* WaveManager::s_currentArmorPickup = nullptr;
+int WaveManager::s_healthPickupHandle = -1;
+int WaveManager::s_armorPickupHandle = -1;
 bool WaveManager::s_pickupsActive = false;
 unsigned int WaveManager::s_pickupCleanupTime = 0;
-bool WaveManager::s_wave1Completed = false;
-bool WaveManager::s_wave2Completed = false;
 
 void WaveManager::Initialize() {
     WaveConfig::InitializeWaveConfigs();
     WaveCombat::Initialize();
 
     s_state = WarState::Idle;
+    s_activeTerritory = nullptr;
     s_currentWave = -1;
     s_enemiesSpawned = 0;
     s_enemiesTarget = 0;
@@ -72,12 +72,10 @@ void WaveManager::Initialize() {
     s_clusterCenters.clear();
     s_clusterSizes.clear();
 
-    s_currentHealthPickup = nullptr;
-    s_currentArmorPickup = nullptr;
+    s_healthPickupHandle = -1;
+    s_armorPickupHandle = -1;
     s_pickupsActive = false;
     s_pickupCleanupTime = 0;
-    s_wave1Completed = false;
-    s_wave2Completed = false;
 
     s_originalChaosLevel = 0;
     s_originalWantedFlags = 0;
@@ -129,6 +127,10 @@ void WaveManager::StartWar(ePedType defendingGang, const Territory* territory) {
         return;
     }
 
+    // If we were in post-war cleanup state from a previous war, nuke it now.
+    CleanupWarPickups();        // clears handles, pickupCleanupTime, pickupsActive
+    s_pickupCleanupTime = 0;
+
     s_defendingGang = defendingGang;
     s_activeTerritory = territory;
     s_currentWave = -1;
@@ -171,16 +173,17 @@ void WaveManager::StartWar(ePedType defendingGang, const Territory* territory) {
             s_originalWantedLevel, s_originalWantedFlags, s_originalChaosLevel);
     }
 
-    // Reset wave completion flags
-    s_wave1Completed = false;
-    s_wave2Completed = false;
-
     DebugLog::Write("War started against gang %d in territory %s (defense: %d)",
         (int)defendingGang, territory ? territory->id.c_str() : "unknown", defenseLevel);
 }
 
 void WaveManager::CancelWar() {
+    // Clean up enemies and pickup spawns
     WaveCombat::CleanupAllEnemies(false);
+    CleanupWarPickups();
+
+    // Clean up under attack in all territories
+    TerritorySystem::ClearAllWarsAndTransientState();
 
     // Reset underAttack flag
     if (s_activeTerritory) {
@@ -226,9 +229,21 @@ void WaveManager::CompleteWar() {
     // Unfreeze wanted level
     s_wantedLevelFrozen = false;
 
-    // Start 60-second pickup cleanup timer
-    s_pickupCleanupTime = CTimer::m_snTimeInMilliseconds + 60000; // 60 seconds
-    DebugLog::Write("Pickups will despawn in 60 seconds");
+    // Start 60-second pickup cleanup timer (SA: post-war only)
+    const bool anyPickupStillExists =
+        (ResolvePickup(s_healthPickupHandle) != nullptr) ||
+        (ResolvePickup(s_armorPickupHandle) != nullptr);
+
+    s_pickupsActive = anyPickupStillExists;
+
+    if (anyPickupStillExists) {
+        s_pickupCleanupTime = CTimer::m_snTimeInMilliseconds + 60000;
+        DebugLog::Write("Post-war pickup despawn in 60 seconds");
+    }
+    else {
+        s_pickupCleanupTime = 0;
+    }
+
 
     // Reset all counters
     s_currentWave = -1;
@@ -266,6 +281,9 @@ void WaveManager::BeginWave(int waveIndex) {
 
     if (waveIndex == 0) {
         SpawnInitialHealthPickup();
+    }
+    else if (waveIndex == 1 || waveIndex == 2) {
+        SpawnWaveArmorPickup();
     }
 
     DebugLog::Write("Beginning wave %d - target %d enemies",
@@ -366,13 +384,6 @@ void WaveManager::CheckWaveCompletion() {
             DebugLog::Write("ERROR: Invalid wave index: %d", completedWave);
             CancelWar();
             return;
-        }
-
-        if (completedWave == 0 && !s_wave1Completed) {
-            SpawnWave1ArmorPickup();
-        }
-        else if (completedWave == 1 && !s_wave2Completed) {
-            SpawnWave2HealthAndArmorPickups();
         }
 
         if (completedWave < s_maxWaves - 1) {
@@ -494,76 +505,58 @@ void WaveManager::FreezeWantedLevelDuringWar() {
     }
 }
 
-// SA: Single health pickup at war start, in middle of road
+CPickup* WaveManager::ResolvePickup(int handle) {
+    if (handle < 0) return nullptr;
+
+    int index = CPickups::GetActualPickupIndex(handle);
+    if (index < 0 || index >= 336) return nullptr;
+
+    CPickup& p = CPickups::aPickUps[index];
+    if (p.m_nPickupType == PICKUP_NONE) return nullptr;
+
+    return &p;
+}
+
 void WaveManager::SpawnInitialHealthPickup() {
     if (!s_activeTerritory || s_isShuttingDown) return;
 
-    // Cleanup any existing pickups
-    if (s_currentHealthPickup) CleanupPickup(s_currentHealthPickup);
-    if (s_currentArmorPickup) CleanupPickup(s_currentArmorPickup);
+    // Wave 1 start in SA: health only.
+    CleanupPickup(s_healthPickupHandle);
+    CleanupPickup(s_armorPickupHandle);
 
-    // Find a position in the territory
     CVector spawnPos = FindPickupPositionInTerritory(s_activeTerritory, nullptr);
 
-    if (spawnPos.x != 0 || spawnPos.y != 0) {
-        // Model 1362 is health pickup
-        s_currentHealthPickup = SpawnPickupAtPosition(spawnPos, PICKUP_ONCE, 1362, 50);
-
-        if (s_currentHealthPickup) {
+    if (spawnPos.x != 0.0f || spawnPos.y != 0.0f) {
+        s_healthPickupHandle = SpawnPickupAtPosition_Handle(spawnPos, PICKUP_ONCE, 1362, 50);
+        if (s_healthPickupHandle != -1) {
             DebugLog::Write("Initial health pickup spawned at %.1f, %.1f, %.1f",
                 spawnPos.x, spawnPos.y, spawnPos.z);
-        }
-    }
-
-    s_pickupsActive = true;
-}
-
-// SA: Single armor pickup after wave 1, in different location
-void WaveManager::SpawnWave1ArmorPickup() {
-    if (!s_activeTerritory || s_isShuttingDown || s_wave1Completed) return;
-
-    // Find a position away from health pickup
-    CVector spawnPos = FindPickupPositionInTerritory(s_activeTerritory, s_currentHealthPickup);
-
-    if (spawnPos.x != 0 || spawnPos.y != 0) {
-        // Model 1364 is armor pickup
-        s_currentArmorPickup = SpawnPickupAtPosition(spawnPos, PICKUP_ONCE, 1364, 50);
-
-        if (s_currentArmorPickup) {
-            s_wave1Completed = true;
-
-            DebugLog::Write("Wave 1 armor pickup spawned at %.1f, %.1f, %.1f (distance from health: %.1f)",
-                spawnPos.x, spawnPos.y, spawnPos.z,
-                s_currentHealthPickup ? Dist2D(spawnPos, s_currentHealthPickup->m_vecPos) : 0.0f);
+            s_pickupsActive = true;
         }
     }
 }
 
-// SA: BOTH health and armor pickups after wave 2
-void WaveManager::SpawnWave2HealthAndArmorPickups() {
-    if (!s_activeTerritory || s_isShuttingDown || s_wave2Completed) return;
+void WaveManager::SpawnWaveArmorPickup() {
+    if (!s_activeTerritory || s_isShuttingDown) return;
 
-    // Find positions near player's CURRENT location
-    CVector healthPos = FindPickupPositionInTerritory(s_activeTerritory, nullptr);
+    // Wave 2 start in SA: armor only; previous wave’s pickup should be gone by now.
+    CleanupPickup(s_healthPickupHandle);
+    CleanupPickup(s_armorPickupHandle);
 
-    // Create temporary dummy to avoid spawning armor too close
-    CPickup dummyHealth;
-    dummyHealth.m_vecPos = healthPos;
-    CVector armorPos = FindPickupPositionInTerritory(s_activeTerritory, &dummyHealth);
+    // Avoid spawning right on top of the player’s last health pickup location doesn’t matter now,
+    // but we can still avoid a dummy position if you want. For now, just use nullptr.
+    CVector spawnPos = FindPickupPositionInTerritory(s_activeTerritory, nullptr);
 
-    // Cleanup old
-    if (s_currentHealthPickup) CleanupPickup(s_currentHealthPickup);
-    if (s_currentArmorPickup) CleanupPickup(s_currentArmorPickup);
-
-    // Spawn new
-    s_currentHealthPickup = SpawnPickupAtPosition(healthPos, PICKUP_ONCE, 1362, 50);
-    s_currentArmorPickup = SpawnPickupAtPosition(armorPos, PICKUP_ONCE, 1364, 50);
-
-    s_wave2Completed = true;
-
-    DebugLog::Write("Wave 2: Health+Armor spawned, separation=%.1f",
-        Dist2D(healthPos, armorPos));
+    if (spawnPos.x != 0.0f || spawnPos.y != 0.0f) {
+        s_armorPickupHandle = SpawnPickupAtPosition_Handle(spawnPos, PICKUP_ONCE, 1364, 50);
+        if (s_armorPickupHandle != -1) {
+            DebugLog::Write("Armor pickup spawned at %.1f, %.1f, %.1f",
+                spawnPos.x, spawnPos.y, spawnPos.z);
+            s_pickupsActive = true;
+        }
+    }
 }
+
 
 CVector WaveManager::FindPickupPositionInTerritory(const Territory* territory, CPickup* avoidPickup) {
     if (!territory) return CVector(0, 0, 0);
@@ -646,68 +639,65 @@ CVector WaveManager::FindPickupPositionInTerritory(const Territory* territory, C
 }
 
 // Spawn a single pickup
-CPickup* WaveManager::SpawnPickupAtPosition(const CVector& pos, int pickupType, int modelId, int quantity) {
+int WaveManager::SpawnPickupAtPosition_Handle(const CVector& pos, int pickupType, int modelId, int quantity) {
     int handle = CPickups::GenerateNewOne(pos, modelId, pickupType, quantity);
+    if (handle == -1) return -1;
 
-    if (handle != -1) {
-        int actualIndex = CPickups::GetActualPickupIndex(handle);
-        if (actualIndex >= 0 && actualIndex < 336) {
-            CPickup* pickup = &CPickups::aPickUps[actualIndex];
-            pickup->m_nQuantity = quantity;
-            return pickup;
-        }
+    if (CPickup* p = ResolvePickup(handle)) {
+        p->m_nQuantity = quantity;
     }
-
-    return nullptr;
+    return handle;
 }
 
 // Cleanup all pickups
 void WaveManager::CleanupWarPickups() {
-    CleanupPickup(s_currentHealthPickup);
-    CleanupPickup(s_currentArmorPickup);
+    const bool hadAny =
+        (ResolvePickup(s_healthPickupHandle) != nullptr) ||
+        (ResolvePickup(s_armorPickupHandle) != nullptr);
+
+    CleanupPickup(s_healthPickupHandle);
+    CleanupPickup(s_armorPickupHandle);
 
     s_pickupsActive = false;
     s_pickupCleanupTime = 0;
-    s_wave1Completed = false;
-    s_wave2Completed = false;
 
-    DebugLog::Write("All war pickups cleaned up");
+    if (hadAny) { DebugLog::Write("All war pickups cleaned up"); }
 }
 
 // Remove a single pickup
-void WaveManager::CleanupPickup(CPickup*& pickup) {
-    if (!pickup) return;
-
-    // Find and remove from game
-    for (int i = 0; i < 336; i++) {
-        if (&CPickups::aPickUps[i] == pickup) {
-            pickup->m_bRemoved = true;
-            pickup->m_nPickupType = PICKUP_NONE;
-
-            if (pickup->m_pObject) {
-                CWorld::Remove(pickup->m_pObject);
-                // delete pickup->m_pObject;
-                pickup->m_pObject = nullptr;
-            }
-
-            pickup = nullptr;
-            break;
-        }
+void WaveManager::CleanupPickup(int& handle) {
+    if (handle < 0) {
+        handle = -1;
+        return;
     }
+
+    CPickup* p = ResolvePickup(handle);
+    if (!p) {
+        handle = -1;
+        return;
+    }
+
+    p->m_bRemoved = true;
+    p->m_nPickupType = PICKUP_NONE;
+
+    if (p->m_pObject) {
+        CWorld::Remove(p->m_pObject);
+        p->m_pObject = nullptr;
+    }
+
+    handle = -1;
 }
+
 
 // Update pickup cleanup timer
 void WaveManager::UpdatePickupCleanup() {
+    // Runs only when a post-war despawn timer is armed.
     if (!s_pickupsActive || s_pickupCleanupTime == 0) return;
 
     unsigned int now = CTimer::m_snTimeInMilliseconds;
-
     if (now >= s_pickupCleanupTime) {
-        DebugLog::Write("60 seconds passed - removing war pickups");
+        DebugLog::Write("Post-war pickup timer elapsed - removing war pickups");
         CleanupWarPickups();
-
-        // Optional SA-style message
-        CMessages::AddMessageJumpQ("War pickups have despawned", 2000, 0);
     }
 }
 
@@ -729,8 +719,9 @@ void WaveManager::CheckPlayerDeath() {
             TerritorySystem::SetUnderAttack(s_activeTerritory, false);
         }
 
-        // Clean up enemies
+        // Clean up enemies and pickup spawns
         WaveCombat::CleanupAllEnemies(false);
+        CleanupWarPickups();
 
         // Reset everything
         s_state = WarState::Idle;
@@ -778,9 +769,17 @@ void WaveManager::CheckForFleeing() {
 }
 
 void WaveManager::Update() {
-    if (s_isShuttingDown || s_state == WarState::Idle || s_state == WarState::Completed) return;
+    if (s_isShuttingDown) return;
+
+    // Always service pickup cleanup timer (even if Idle/Completed)
+    UpdatePickupCleanup();
+
+    if (s_state == WarState::Idle) return;
 
     unsigned int now = CTimer::m_snTimeInMilliseconds;
+
+    // If we're Completed, nothing else should run
+    if (s_state == WarState::Completed) return;
 
     // Check player death every second
     static unsigned int s_lastDeathCheckTime = 0;
@@ -807,9 +806,6 @@ void WaveManager::Update() {
     if (s_wantedLevelFrozen) {
         FreezeWantedLevelDuringWar();
     }
-
-    // Update pickup cleanup timer
-    UpdatePickupCleanup();
 
     // Update combat system (cleans up dead enemies)
     WaveCombat::Update(now);
@@ -866,6 +862,7 @@ void WaveManager::Shutdown() {
 
     s_isShuttingDown = true;
     WaveCombat::Shutdown();
+    CleanupWarPickups();
 
     // Unfreeze wanted level
     s_wantedLevelFrozen = false;
