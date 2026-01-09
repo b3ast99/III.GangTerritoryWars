@@ -1,6 +1,7 @@
 #include "DamageHook.h"
 #include "DirectDamageTracker.h"
 #include "DebugLog.h"
+#include "HookUtil.h"
 
 #include "CPed.h"
 #include "CPlayerPed.h"
@@ -19,44 +20,6 @@
 bool DamageHook::s_installed = false;
 unsigned int DamageHook::s_hookedAddr = 0;
 DamageHook::InflictDamage_t DamageHook::s_original = nullptr;
-
-// ------------------------------------------------------------
-// Small helpers
-// ------------------------------------------------------------
-static bool WriteRelJmp(void* src, void* dst)
-{
-    DWORD oldProtect{};
-    if (!VirtualProtect(src, 5, PAGE_EXECUTE_READWRITE, &oldProtect))
-        return false;
-
-    auto* p = reinterpret_cast<std::uint8_t*>(src);
-    p[0] = 0xE9; // JMP rel32
-    std::int32_t rel = (std::int32_t)((std::uint8_t*)dst - ((std::uint8_t*)src + 5));
-    std::memcpy(p + 1, &rel, sizeof(rel));
-
-    VirtualProtect(src, 5, oldProtect, &oldProtect);
-    FlushInstructionCache(GetCurrentProcess(), src, 5);
-    return true;
-}
-
-static void* MakeTrampoline(void* target, std::size_t stolenBytes)
-{
-    // Allocate RWX memory for trampoline
-    void* tramp = VirtualAlloc(nullptr, stolenBytes + 5, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    if (!tramp) return nullptr;
-
-    // Copy stolen bytes from original function entry
-    std::memcpy(tramp, target, stolenBytes);
-
-    // Add a jump back to original+stolenBytes
-    std::uint8_t* jmpFrom = (std::uint8_t*)tramp + stolenBytes;
-    jmpFrom[0] = 0xE9;
-    std::int32_t relBack = (std::int32_t)(((std::uint8_t*)target + stolenBytes) - (jmpFrom + 5));
-    std::memcpy(jmpFrom + 1, &relBack, sizeof(relBack));
-
-    FlushInstructionCache(GetCurrentProcess(), tramp, stolenBytes + 5);
-    return tramp;
-}
 
 // ------------------------------------------------------------
 // Public API
@@ -113,14 +76,14 @@ bool DamageHook::TryInstallAtAddress(unsigned int addr)
     constexpr std::size_t kStolen = 5;
 
     // Create trampoline BEFORE patching target
-    void* tramp = MakeTrampoline(target, kStolen);
+    void* tramp = HookUtil::MakeTrampoline(target, kStolen);
     if (!tramp) {
         DebugLog::Write("TryInstall: trampoline alloc failed at 0x%08X", addr);
         return false;
     }
 
     // Patch original -> hook
-    if (!WriteRelJmp(target, (void*)&InflictDamageHook)) {
+    if (!HookUtil::WriteRelJmp(target, (void*)&InflictDamageHook)) {
         DebugLog::Write("TryInstall: WriteRelJmp failed at 0x%08X", addr);
         return false;
     }

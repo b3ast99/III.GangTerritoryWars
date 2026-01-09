@@ -14,6 +14,8 @@ public:
     static void Shutdown();
     static void Process();
 
+    static void SuppressKillCreditFor(unsigned int ms);
+
 private:
     static bool IsPedJustDied(CPed* ped);
     static bool IsGangPed(CPed* ped);

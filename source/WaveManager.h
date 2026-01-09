@@ -2,7 +2,6 @@
 #pragma once
 #include "TerritorySystem.h"
 #include "plugin.h"
-#include "CPickup.h"
 #include "ePedType.h"
 #include <vector>
 
@@ -41,8 +40,7 @@ public:
 
     // Pickup system
     static void SpawnInitialHealthPickup();         // Single health pickup at war start
-    static void SpawnWave1ArmorPickup();            // Single armor after wave 1
-    static void SpawnWave2HealthAndArmorPickups();  // Both after wave 2
+    static void SpawnWaveArmorPickup();             // Single armor after wave 1 and wave 2
     static void CleanupWarPickups();                // Called 60s after war ends
     static void UpdatePickupCleanup();              // Check cleanup timer
 
@@ -63,17 +61,16 @@ private:
     static constexpr int s_maxWaves = 3;           // 3 waves in total
 
     // Pickup system tracking
-    static CPickup* s_currentHealthPickup;
-    static CPickup* s_currentArmorPickup;
+    static int s_healthPickupHandle;
+    static int s_armorPickupHandle;
     static bool s_pickupsActive;
     static unsigned int s_pickupCleanupTime;
-    static bool s_wave1Completed;
-    static bool s_wave2Completed;
 
     //Pickup helper functions
-    static CPickup* SpawnPickupAtPosition(const CVector& pos, int pickupType, int modelId, int quantity = 50);
+    static int SpawnPickupAtPosition_Handle(const CVector& pos, int pickupType, int modelId, int quantity);
     static CVector FindPickupPositionInTerritory(const Territory* territory, CPickup* avoidPickup = nullptr);
-    static void CleanupPickup(CPickup*& pickup);
+    static CPickup* ResolvePickup(int handle);
+    static void CleanupPickup(int& handle);
 
     // Flee system
     static CVector s_warCenter;

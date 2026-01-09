@@ -1,57 +1,28 @@
 #include "TerritorySystem.h"
+#include "TerritoryRadarRenderer.h"
 #include "DebugLog.h"
+#include "WaveManager.h"
 
 #include "CRadar.h"
 #include "CWorld.h"
 #include "CPlayerPed.h"
-#include "CTheScripts.h"
 #include "CMessages.h"
 #include "CTimer.h"
-
-#include "TerritoryRadarRenderer.h"
 
 #include <cstdio>
 #include <algorithm>
 #include <sys/stat.h>
 #include <cctype>
+#include <cstring>
 #include <windows.h>
 
-// -----------------------------------------------------------------------------
-// territories.txt (single source of truth)
+// ------------------------------------------------------------
+// territories.txt format:
+// id,minX,minY,maxX,maxY[,ownerGangCode[,underAttack[,defenseLevel]]]
 //
-// CSV-ish format:
-//
-//   id,minX,minY,maxX,maxY[,ownerGangCode[,underAttack[,defenseLevel]]]
-//
-// where ownerGangCode:
-//   -1 = neutral
-//    7 = PEDTYPE_GANG1
-//    8 = PEDTYPE_GANG2
-//    9 = PEDTYPE_GANG3
-// 
-// where defenseLevel:
-//    0 = light
-//    1 = moderate
-//    2 = heavy
-//
-// Examples:
-//   1001,902,-327,961,-160.5,9,0,0
-//   1002,-1000,700,-800,1000,8,0,1
-//   1003,-600,550,-800,750,7,0,2
-
-//
-// Rules:
-// - id cannot contain commas
-// - ownerGang defaults to -1 if omitted
-// - underAttack defaults to 0 if omitted
-// - defenseLevel defaults to 1 if omitted
-// - Lines starting with # are comments
-// - Empty lines ignored
-// -----------------------------------------------------------------------------
-
-static CVector TerritoryCenter3D(const Territory& t) {
-    return CVector((t.minX + t.maxX) * 0.5f, (t.minY + t.maxY) * 0.5f, 0.0f);
-}
+// ownerGangCode is treated as DEFAULT owner (loaded into defaultOwnerGang)
+// underAttack is ignored as default and treated runtime-only
+// ------------------------------------------------------------
 
 static float Dist2(float ax, float ay, float bx, float by) {
     const float dx = ax - bx;
@@ -66,30 +37,6 @@ static bool IsAllDigits(const std::string& s)
         if (c < '0' || c > '9') return false;
     }
     return true;
-}
-
-static int ParseIntStrict(const std::string& s, bool& ok)
-{
-    ok = false;
-    if (!IsAllDigits(s)) return 0;
-    long long v = 0;
-    for (char c : s) {
-        v = v * 10 + (c - '0');
-        if (v > 2000000000LL) return 0;
-    }
-    ok = true;
-    return (int)v;
-}
-
-
-static void TrimInPlace(char* s) {
-    if (!s) return;
-
-    // leading
-    while (*s && std::isspace((unsigned char)*s)) ++s;
-
-    // We can't shift pointer for caller, so do manual left trim into buffer:
-    // (This is only used for line buffers we own.)
 }
 
 static void StripNewline(char* s) {
@@ -129,20 +76,16 @@ static const char* GetConfigPathRelativeToASI()
         char modulePath[MAX_PATH];
         GetModuleFileNameA(hMod, modulePath, MAX_PATH);
 
-        // Strip filename
         char* lastSlash = strrchr(modulePath, '\\');
         if (lastSlash) {
             *(lastSlash + 1) = '\0';
         }
 
-        // Append territories.txt to the same directory
         size_t moduleLen = strlen(modulePath);
         size_t needed = moduleLen + strlen("territories.txt") + 1;
         if (needed <= sizeof(path)) {
             snprintf(path, sizeof(path), "%sterritories.txt", modulePath);
-        }
-        else {
-            // Fallback
+        } else {
             DebugLog::Write("Path too long, using current directory");
             strcpy_s(path, sizeof(path), "territories.txt");
         }
@@ -154,8 +97,10 @@ static const char* GetConfigPathRelativeToASI()
     return path;
 }
 
+// ------------------------------------------------------------
+// Static members
+// ------------------------------------------------------------
 std::vector<Territory> TerritorySystem::s_territories;
-
 bool TerritorySystem::s_overlayEnabled = true;
 
 unsigned int TerritorySystem::s_nextReloadPollMs = 0;
@@ -176,21 +121,15 @@ void TerritorySystem::NormalizeRect(Territory& t) {
 long long TerritorySystem::GetConfigStampOrNeg1() {
     struct stat s {};
     if (stat(ConfigPath(), &s) != 0) return -1;
-    // st_mtime is seconds; plenty for our hot reload needs.
     return (long long)s.st_mtime;
 }
 
-// TerritorySystem.cpp - Update ParseLineTerritory function
 static bool ParseLineTerritory(const char* line, Territory& outT, std::string& outErr) {
-    // Expect: id,minX,minY,maxX,maxY[,ownerGang[,underAttack[,defenseLevel]]]
-    // id cannot contain commas, so scan id up to first comma.
     if (!line || !line[0]) { outErr = "Empty line"; return false; }
 
-    // Make a local mutable copy (safe tokenization)
     char buf[512];
     std::snprintf(buf, sizeof(buf), "%s", line);
 
-    // Tokenize by commas - increase from 7 to 8 tokens
     char* tokens[8] = { 0 };
     int count = 0;
 
@@ -203,10 +142,8 @@ static bool ParseLineTerritory(const char* line, Territory& outT, std::string& o
         p = comma + 1;
     }
 
-    // Trim whitespace on each token
     for (int i = 0; i < count; i++) {
         char* t = LTrim(tokens[i]);
-        // shift left by copying into same spot
         if (t != tokens[i]) std::memmove(tokens[i], t, std::strlen(t) + 1);
         RTrim(tokens[i]);
     }
@@ -220,45 +157,41 @@ static bool ParseLineTerritory(const char* line, Territory& outT, std::string& o
     t.id = tokens[0];
     if (t.id.empty()) { outErr = "Missing id"; return false; }
 
-    // Require numeric id in file
     if (!IsAllDigits(t.id)) {
         outErr = "Id must be numeric (e.g. 1001)";
         return false;
     }
 
-    // Parse floats
     if (std::sscanf(tokens[1], "%f", &t.minX) != 1) { outErr = "Bad minX"; return false; }
     if (std::sscanf(tokens[2], "%f", &t.minY) != 1) { outErr = "Bad minY"; return false; }
     if (std::sscanf(tokens[3], "%f", &t.maxX) != 1) { outErr = "Bad maxX"; return false; }
     if (std::sscanf(tokens[4], "%f", &t.maxY) != 1) { outErr = "Bad maxY"; return false; }
 
     t.ownerGang = -1;
+    t.defaultOwnerGang = -1;
     t.underAttack = false;
-    t.defenseLevel = 1; // Default to moderate
+    t.defenseLevel = 1;
 
     if (count >= 6 && tokens[5] && tokens[5][0]) {
         int code = -1;
         if (std::sscanf(tokens[5], "%d", &code) != 1) { outErr = "Bad ownerGangCode"; return false; }
         t.ownerGang = code;
+        t.defaultOwnerGang = code;
+    } else {
+        t.ownerGang = -1;
+        t.defaultOwnerGang = -1;
     }
 
-    if (count >= 7 && tokens[6] && tokens[6][0]) {
-        int ua = 0;
-        if (std::sscanf(tokens[6], "%d", &ua) != 1) { outErr = "Bad underAttack"; return false; }
-        t.underAttack = (ua != 0);
-    }
-
-    // NEW: Parse defenseLevel (0=Light, 1=Moderate, 2=Heavy)
+    // UnderAttack in file is ignored for defaults; always runtime-only
+    // Defense level optional
     if (count >= 8 && tokens[7] && tokens[7][0]) {
-        int dl = 1; // Default to moderate
+        int dl = 1;
         if (std::sscanf(tokens[7], "%d", &dl) != 1) { outErr = "Bad defenseLevel"; return false; }
-        // Clamp to valid range
         if (dl < 0) dl = 0;
         if (dl > 2) dl = 2;
         t.defenseLevel = dl;
     }
 
-    // Normalize
     if (t.minX > t.maxX) std::swap(t.minX, t.maxX);
     if (t.minY > t.maxY) std::swap(t.minY, t.maxY);
 
@@ -291,24 +224,23 @@ bool TerritorySystem::LoadFromFile(std::vector<Territory>& out, std::string& out
         Territory t{};
         std::string perr;
         if (!ParseLineTerritory(p, t, perr)) {
-            char buf[256];
-            std::snprintf(buf, sizeof(buf), "Parse error line %d: %s", lineNo, perr.c_str());
-            outErr = buf;
+            char buf2[256];
+            std::snprintf(buf2, sizeof(buf2), "Parse error line %d: %s", lineNo, perr.c_str());
+            outErr = buf2;
             std::fclose(f);
             return false;
         }
 
-        // Enforce unique ids
         auto dup = std::find_if(out.begin(), out.end(), [&](const Territory& x) { return x.id == t.id; });
         if (dup != out.end()) {
-            char buf[256];
-            std::snprintf(buf, sizeof(buf), "Duplicate id '%s' at line %d", t.id.c_str(), lineNo);
-            outErr = buf;
+            char buf2[256];
+            std::snprintf(buf2, sizeof(buf2), "Duplicate id '%s' at line %d", t.id.c_str(), lineNo);
+            outErr = buf2;
             std::fclose(f);
             return false;
         }
 
-        out.push_back(std::move(t));
+        out.push_back(t);
     }
 
     std::fclose(f);
@@ -321,117 +253,55 @@ bool TerritorySystem::LoadFromFile(std::vector<Territory>& out, std::string& out
     return true;
 }
 
+// NOTE: SaveToFile is still used by the editor to modify rectangles/defaults.
 static bool AtomicWriteTerritories(const char* finalPath, const char* tmpPath, const char* bakPath,
-    const std::vector<Territory>& terrs, std::string& outErr) {
-
-    DebugLog::Write("TerritorySystem: Opening temp file %s", tmpPath);
-
+    const std::vector<Territory>& terrs, std::string& outErr)
+{
     FILE* f = std::fopen(tmpPath, "wb");
-    if (!f) {
-        outErr = "Failed to open temp file for write";
-        DebugLog::Write("TerritorySystem: Failed to open temp file %s, error: %d", tmpPath, errno);
-        return false;
-    }
+    if (!f) { outErr = "Failed to open temp file for write"; return false; }
 
-    DebugLog::Write("TerritorySystem: Writing %d territories", (int)terrs.size());
-
-    std::fprintf(f, "# id,minX,minY,maxX,maxY,ownerGangCode,underAttack\n");
+    std::fprintf(f, "# id,minX,minY,maxX,maxY,ownerGangCode,underAttack,defenseLevel\n");
     for (const auto& t : terrs) {
-        std::fprintf(
-            f,
-            "%s,%.3f,%.3f,%.3f,%.3f,%d,%d,%d\n",
-            t.id.c_str(),
-            t.minX, t.minY, t.maxX, t.maxY,
-            t.ownerGang,
-            t.underAttack ? 1 : 0,
-            t.defenseLevel
-        );
+        std::fprintf(f, "%s,%.3f,%.3f,%.3f,%.3f,%d,%d,%d\n",
+            t.id.c_str(), t.minX, t.minY, t.maxX, t.maxY,
+            t.defaultOwnerGang, 0, t.defenseLevel);
     }
 
     std::fclose(f);
-    DebugLog::Write("TerritorySystem: Temp file written successfully");
 
-    // Simple atomic-ish replace:
-    // 1. Remove old backup if exists
     std::remove(bakPath);
-
-    // 2. Backup current file if it exists
-    if (std::rename(finalPath, bakPath) != 0) {
-        // It's OK if this fails - file might not exist yet
-        DebugLog::Write("TerritorySystem: Note: Could not create backup (file may not exist)");
-    }
-
-    // 3. Move temp to final
+    std::rename(finalPath, bakPath);
     if (std::rename(tmpPath, finalPath) != 0) {
         outErr = "Failed to move temp file into place";
-        DebugLog::Write("TerritorySystem: Failed to rename temp->final: error=%d", errno);
-
-        // Try copy as fallback
-        std::ifstream src(tmpPath, std::ios::binary);
-        std::ofstream dst(finalPath, std::ios::binary);
-        if (src && dst) {
-            dst << src.rdbuf();
-            DebugLog::Write("TerritorySystem: Used copy fallback");
-            std::remove(tmpPath); // Clean up temp file
-            return true;
-        }
-        else {
-            DebugLog::Write("TerritorySystem: Copy fallback also failed");
-            return false;
-        }
+        std::remove(tmpPath);
+        return false;
     }
-
-    DebugLog::Write("TerritorySystem: Save completed successfully");
     return true;
 }
 
 bool TerritorySystem::SaveToFile(const std::vector<Territory>& terrs, std::string& outErr) {
-    // sort by id for deterministic output
     std::vector<Territory> sorted = terrs;
-    std::sort(sorted.begin(), sorted.end(), [](const Territory& a, const Territory& b) {
-        bool oka = false, okb = false;
-        int ia = ParseIntStrict(a.id, oka);
-        int ib = ParseIntStrict(b.id, okb);
+    std::sort(sorted.begin(), sorted.end(),
+        [](const Territory& a, const Territory& b) { return a.id < b.id; });
 
-        // numeric-first; fall back to string if something slipped through
-        if (oka && okb) return ia < ib;
-        if (oka != okb) return oka; // numeric ids before non-numeric
-        return a.id < b.id;
-        });
-
-    // NO TEMP DIRECTORY NEEDED - everything goes in same directory
     const char* finalPath = ConfigPath();
 
-    // Create temp and backup files in the SAME directory
-    // Use the final path to create temp/bak paths
     char tmpPath[MAX_PATH];
     char bakPath[MAX_PATH];
-
-    // Create temp file name by appending .tmp to the final path
     std::snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", finalPath);
-
-    // Create backup file name by appending .bak to the final path
     std::snprintf(bakPath, sizeof(bakPath), "%s.bak", finalPath);
-
-    DebugLog::Write("TerritorySystem: Saving to %s (tmp=%s, bak=%s)",
-        finalPath, tmpPath, bakPath);
 
     return AtomicWriteTerritories(finalPath, tmpPath, bakPath, sorted, outErr);
 }
 
 int TerritorySystem::ComputeNextId(const std::vector<Territory>& terrs) {
-    int best = 0;
-
+    int best = 1000;
     for (const auto& t : terrs) {
-        bool ok = false;
-        int id = ParseIntStrict(t.id, ok);
-        if (ok && id > best) best = id;
+        int id = std::atoi(t.id.c_str());
+        if (id > best) best = id;
     }
-
-    if (best < 1000) best = 1000;
     return best + 1;
 }
-
 
 bool TerritorySystem::GetPlayerXY(float& outX, float& outY) {
     CPlayerPed* player = CWorld::Players[0].m_pPed;
@@ -443,12 +313,17 @@ bool TerritorySystem::GetPlayerXY(float& outX, float& outY) {
 }
 
 void TerritorySystem::TryReloadNow(bool showToastOnFail) {
+    // Snapshot runtime ownership BEFORE we reload the file.
+    // This is the key: hot reload should keep the persisted/runtime ownership in memory,
+    // not revert ownership back to defaults from territories.txt.
+    std::vector<OwnershipEntry> prevOwnership;
+    GetOwnershipState(prevOwnership);
+
     std::vector<Territory> next;
     std::string err;
 
     if (!LoadFromFile(next, err)) {
         const unsigned int now = CTimer::m_snTimeInMilliseconds;
-        // rate limit fail toasts
         if (showToastOnFail && (now - s_lastReloadFailToastMs) > 2000) {
             s_lastReloadFailToastMs = now;
             DebugLog::Write("TerritorySystem: Reload failed: %s", err.c_str());
@@ -456,14 +331,28 @@ void TerritorySystem::TryReloadNow(bool showToastOnFail) {
         return;
     }
 
+    if (WaveManager::IsWarActive()) {
+        DebugLog::Write("TerritorySystem: hot reload during war -> cancel war");
+        WaveManager::CancelWar();
+    }
+
+
+    // Swap in the new geometry/defaults from file…
     s_territories.swap(next);
+
+    // …then re-apply runtime ownership from memory (sidecar state).
+    // Any IDs not found in prevOwnership will remain whatever the file says (defaults).
+    ApplyOwnershipState(prevOwnership);
+
+    // Runtime-only flags should stay runtime-only.
+    ClearAllWarsAndTransientState();
+
     s_editor.nextId = ComputeNextId(s_territories);
 
-    DebugLog::Write("TerritorySystem: Reloaded %d territories", (int)s_territories.size());
-
-    // stamp update
+    DebugLog::Write("TerritorySystem: Reloaded %d territories (ownership preserved)", (int)s_territories.size());
     s_lastConfigStamp = GetConfigStampOrNeg1();
 }
+
 
 void TerritorySystem::ForceReloadNow() {
     TryReloadNow(true);
@@ -474,7 +363,7 @@ void TerritorySystem::HotReloadTick(unsigned int nowMs) {
     s_nextReloadPollMs = nowMs + 1000;
 
     const long long stamp = GetConfigStampOrNeg1();
-    if (stamp < 0) return; // file missing -> don't spam
+    if (stamp < 0) return;
 
     if (s_lastConfigStamp < 0) {
         s_lastConfigStamp = stamp;
@@ -482,7 +371,6 @@ void TerritorySystem::HotReloadTick(unsigned int nowMs) {
     }
 
     if (stamp != s_lastConfigStamp) {
-        // file changed - attempt reload (toast on fail)
         TryReloadNow(true);
     }
 }
@@ -494,10 +382,8 @@ void TerritorySystem::Init() {
     s_nextReloadPollMs = 0;
     s_lastReloadFailToastMs = 0;
 
-    // initial load
     TryReloadNow(true);
 
-    // editor defaults
     s_editor.enabled = false;
     s_editor.hasA = false;
     s_editor.hasB = false;
@@ -511,9 +397,6 @@ void TerritorySystem::Shutdown() {
 void TerritorySystem::Update() {
     const unsigned int now = CTimer::m_snTimeInMilliseconds;
     HotReloadTick(now);
-
-    // No key handling here. Main calls editor functions.
-    // Nothing else needed in Update right now.
 }
 
 void TerritorySystem::ToggleOverlay() {
@@ -524,6 +407,7 @@ void TerritorySystem::ToggleOverlay() {
 bool TerritorySystem::IsOverlayEnabled() {
     return s_overlayEnabled;
 }
+
 const Territory* TerritorySystem::GetTerritoryAtPoint(const CVector& pos) {
     for (const auto& t : s_territories) {
         if (t.ContainsPoint(pos)) return &t;
@@ -542,15 +426,12 @@ bool TerritorySystem::HasRealTerritories() {
 }
 
 int TerritorySystem::GetPlayerGang() {
-    // Placeholder: keep your scripts-based check behavior stable.
-    //if (CTheScripts::ScriptSpace[0x1A4] > 10) {
-    //    return PEDTYPE_GANG1; // Leone Mafia
-    //}
-    //return -1;
-
     return PEDTYPE_GANG1;
 }
 
+// ------------------------------------------------------------
+// Runtime-only mutations (no territories.txt writes)
+// ------------------------------------------------------------
 void TerritorySystem::SetTerritoryOwner(const Territory* t, int newOwnerGang) {
     if (!t) return;
 
@@ -558,21 +439,7 @@ void TerritorySystem::SetTerritoryOwner(const Territory* t, int newOwnerGang) {
         if (terr.id == t->id) {
             terr.ownerGang = newOwnerGang;
             terr.underAttack = false;
-
-            std::string err;
-            if (!SaveToFile(s_territories, err)) {
-                // Log to debug instead of showing UI popup
-                DebugLog::Write("TerritorySystem: FAILED to save territory %s: %s",
-                    t->id.c_str(), err.c_str());
-            }
-            else {
-                // reload stamp so hot reload doesn't fight us
-                s_lastConfigStamp = GetConfigStampOrNeg1();
-
-                // Debug log the capture instead of UI popup
-                DebugLog::Write("TerritorySystem: %s captured (owner=%d)",
-                    t->id.c_str(), newOwnerGang);
-            }
+            DebugLog::Write("TerritorySystem: %s owner=%d (runtime)", t->id.c_str(), newOwnerGang);
             break;
         }
     }
@@ -584,19 +451,49 @@ void TerritorySystem::SetUnderAttack(const Territory* t, bool underAttack) {
     for (auto& terr : s_territories) {
         if (terr.id == t->id) {
             terr.underAttack = underAttack;
-
-            std::string err;
-            if (!SaveToFile(s_territories, err)) {
-                DebugLog::Write("TerritorySystem: FAILED to save underAttack for %s: %s",
-                    t->id.c_str(), err.c_str());
-            }
-            else {
-                s_lastConfigStamp = GetConfigStampOrNeg1();
-                DebugLog::Write("TerritorySystem: %s underAttack=%d",
-                    t->id.c_str(), underAttack);
-            }
+            DebugLog::Write("TerritorySystem: %s underAttack=%d (runtime)", t->id.c_str(), underAttack ? 1 : 0);
             break;
         }
+    }
+}
+
+void TerritorySystem::ResetOwnershipToDefaults() {
+    for (auto& t : s_territories) {
+        t.ownerGang = t.defaultOwnerGang;
+    }
+}
+
+void TerritorySystem::ApplyOwnershipState(const std::vector<OwnershipEntry>& entries) {
+    for (const auto& e : entries) {
+        for (auto& t : s_territories) {
+            if (t.id == e.id) {
+                t.ownerGang = e.ownerGang;
+                break;
+            }
+        }
+    }
+}
+
+void TerritorySystem::GetOwnershipState(std::vector<OwnershipEntry>& out) {
+    out.clear();
+    out.reserve(s_territories.size());
+    for (const auto& t : s_territories) {
+        OwnershipEntry e;
+        e.id = t.id;
+        e.ownerGang = t.ownerGang;
+        out.push_back(e);
+    }
+}
+
+void TerritorySystem::ClearAllWarsAndTransientState() {
+    for (auto& t : s_territories) {
+        t.underAttack = false;
+
+        // If we ever add any other runtime-only fields, clear them here too.
+        // t.attackStartMs = 0;
+        // t.lastWarEndMs = 0;
+        // t.pendingCapture = false;
+        // etc...
     }
 }
 
@@ -609,10 +506,9 @@ void TerritorySystem::DrawRadarOverlay() {
     TerritoryRadarRenderer::DrawRadarOverlay(s_territories);
 }
 
-// -----------------------------------------------------------------------------
-// Editor API (called from Main.cpp via Ctrl+keybinds)
-// -----------------------------------------------------------------------------
-
+// ------------------------------------------------------------
+// Editor API (same keybinds as before)
+// ------------------------------------------------------------
 void TerritorySystem::EditorToggle() {
     s_editor.enabled = !s_editor.enabled;
     s_editor.hasA = false;
@@ -663,7 +559,6 @@ void TerritorySystem::EditorCommitTerritory() {
     }
 
     Territory t{};
-    // Deterministic new id
     char idbuf[64];
     std::snprintf(idbuf, sizeof(idbuf), "%d", s_editor.nextId++);
     t.id = idbuf;
@@ -673,11 +568,11 @@ void TerritorySystem::EditorCommitTerritory() {
     t.minY = std::min(s_editor.ay, s_editor.by);
     t.maxY = std::max(s_editor.ay, s_editor.by);
 
-    t.ownerGang = s_editor.defaultOwnerGang;
+    t.defaultOwnerGang = s_editor.defaultOwnerGang;
+    t.ownerGang = t.defaultOwnerGang;
     t.underAttack = false;
     t.defenseLevel = s_editor.defaultDefenseLevel;
 
-    // Basic sanity: prevent zero-area boxes
     const float w = (t.maxX - t.minX);
     const float h = (t.maxY - t.minY);
     if (w < 2.0f || h < 2.0f) {
@@ -690,13 +585,11 @@ void TerritorySystem::EditorCommitTerritory() {
     std::string err;
     if (!SaveToFile(s_territories, err)) {
         DebugLog::Write("TerritoryEditor: Save FAILED: %s", err.c_str());
-        // rollback in-memory add if save fails
         s_territories.pop_back();
         return;
     }
 
     s_lastConfigStamp = GetConfigStampOrNeg1();
-
     s_editor.hasA = false;
     s_editor.hasB = false;
 
@@ -726,7 +619,6 @@ void TerritorySystem::EditorDeleteClosestToPlayer() {
 
     if (bestIdx < 0) return;
 
-    // delete
     const std::string deletedId = s_territories[bestIdx].id;
     s_territories.erase(s_territories.begin() + bestIdx);
 
@@ -737,8 +629,5 @@ void TerritorySystem::EditorDeleteClosestToPlayer() {
     }
 
     s_lastConfigStamp = GetConfigStampOrNeg1();
-
-    char msg[128];
-    std::snprintf(msg, sizeof(msg), "Editor: Deleted %s", deletedId.c_str());
-    DebugLog::Write(msg);
+    DebugLog::Write("Editor: Deleted %s", deletedId.c_str());
 }

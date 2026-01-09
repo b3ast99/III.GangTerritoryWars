@@ -12,6 +12,7 @@
 #include "PedDeathTracker.h"
 #include "DamageHook.h"
 #include "DirectDamageTracker.h"
+#include "TerritoryPersistence.h"
 
 #include <windows.h>
 #include <cstdio>
@@ -56,6 +57,7 @@ public:
             GangManager::Initialize();
             WaveManager::Initialize();
             TerritorySystem::Init();
+            TerritoryPersistence::Init();
             WarSystem::Init();
 
             DirectDamageTracker::Initialize();
@@ -76,6 +78,10 @@ public:
 
         Events::shutdownRwEvent += [] {
             DebugLog::Write("Plugin shutdown triggered via shutdownRwEvent");
+            g_isTearingDown = true;
+
+            TerritoryPersistence::Shutdown();
+            TerritorySystem::Shutdown();
             PedDeathTracker::Shutdown();
             DirectDamageTracker::Shutdown();
             WaveManager::Shutdown();
@@ -86,6 +92,7 @@ public:
             if (g_isTearingDown) return;
 
             TerritorySystem::Process();
+            TerritoryPersistence::Process();
             WarSystem::Process();
             WaveManager::Process();
 

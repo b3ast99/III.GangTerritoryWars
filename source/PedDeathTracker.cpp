@@ -6,13 +6,23 @@
 
 std::vector<PedDeathTracker::DeathRecord> PedDeathTracker::s_recentlyProcessed;
 unsigned int PedDeathTracker::s_lastCleanupTime = 0;
+static unsigned int s_suppressKillCreditUntilMs = 0;
+
+static inline bool TimePassed(unsigned int now, unsigned int then, unsigned int ms)
+{
+    // Handles "time went backwards" (load) safely
+    if (now < then) return true;
+    return (now - then) > ms;
+}
 
 void PedDeathTracker::Initialize()
 {
     s_recentlyProcessed.clear();
     s_lastCleanupTime = 0;
+    s_suppressKillCreditUntilMs = 0;
     DebugLog::Write("PedDeathTracker initialized");
 }
+
 
 void PedDeathTracker::Shutdown()
 {
@@ -71,21 +81,42 @@ bool PedDeathTracker::IsPlayerRecentlyAttacking(CPlayerPed* player)
     return false;
 }
 
+void PedDeathTracker::SuppressKillCreditFor(unsigned int ms)
+{
+    const unsigned int now = CTimer::m_snTimeInMilliseconds;
+    s_suppressKillCreditUntilMs = now + ms;
+    DebugLog::Write("PedDeathTracker: suppress kill credit for %u ms", ms);
+}
+
+
 void PedDeathTracker::Process()
 {
     const unsigned int now = CTimer::m_snTimeInMilliseconds;
 
     // Periodic cleanup - remove records older than 30 seconds
-    if (now - s_lastCleanupTime > 5000) { // Check every 5 seconds
+    if (now < s_lastCleanupTime || (now - s_lastCleanupTime) > 5000) {
         s_recentlyProcessed.erase(
             std::remove_if(s_recentlyProcessed.begin(), s_recentlyProcessed.end(),
                 [now](const DeathRecord& r) {
-                    // Keep records for 30 seconds to prevent duplicate counting
+                    // If time went backwards (load), treat record as stale and remove it.
+                    if (now < r.timestamp) return true;
                     return (now - r.timestamp) > 30000;
                 }),
             s_recentlyProcessed.end()
         );
         s_lastCleanupTime = now;
+    }
+
+    // Suppress kill credit during load/cleanup windows (prevents cleanup "kills")
+    if (s_suppressKillCreditUntilMs != 0) {
+        // If time went backwards, keep suppression active by resetting window from "now"
+        if (now < (s_suppressKillCreditUntilMs - 1)) {
+            // no-op: still suppressed
+        }
+        if (now < s_suppressKillCreditUntilMs) {
+            return;
+        }
+        s_suppressKillCreditUntilMs = 0;
     }
 
     CPlayerPed* player = CWorld::Players[0].m_pPed;
