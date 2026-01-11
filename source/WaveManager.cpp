@@ -539,11 +539,11 @@ void WaveManager::SpawnInitialHealthPickup() {
 void WaveManager::SpawnWaveArmorPickup() {
     if (!s_activeTerritory || s_isShuttingDown) return;
 
-    // Wave 2 start in SA: armor only; previous wave�s pickup should be gone by now.
+    // Wave 2 start in SA: armor only; previous wave’s pickup should be gone by now.
     CleanupPickup(s_healthPickupHandle);
     CleanupPickup(s_armorPickupHandle);
 
-    // Avoid spawning right on top of the player�s last health pickup location doesn�t matter now,
+    // Avoid spawning right on top of the player’s last health pickup location doesn’t matter now,
     // but we can still avoid a dummy position if you want. For now, just use nullptr.
     CVector spawnPos = FindPickupPositionInTerritory(s_activeTerritory, nullptr);
 
@@ -700,6 +700,56 @@ void WaveManager::UpdatePickupCleanup() {
         CleanupWarPickups();
     }
 }
+
+void WaveManager::ResetForLoad()
+{
+    DebugLog::Write("WaveManager: ResetForLoad - hard reset war runtime state");
+
+    // Stop any combat/enemy tracking immediately
+    WaveCombat::CleanupAllEnemies(false);
+
+    // Remove any war pickups immediately (don’t wait 60s on load)
+    CleanupWarPickups();
+    s_healthPickupHandle = -1;
+    s_armorPickupHandle = -1;
+    s_pickupsActive = false;
+    s_pickupCleanupTime = 0;
+
+    // Clear territory runtime transient state (underAttack etc.)
+    TerritorySystem::ClearAllWarsAndTransientState();
+
+    // Reset wave state machine
+    s_state = WarState::Idle;
+    s_currentWave = -1;
+    s_enemiesSpawned = 0;
+    s_enemiesTarget = 0;
+    s_enemiesSpawnedInWave = 0;
+
+    // Clear clusters/timers/messages
+    s_nextActionTime = 0;
+    s_nextClusterSpawnTime = 0;
+    s_currentClusterIndex = 0;
+    s_clusterCenters.clear();
+    s_clusterSizes.clear();
+
+    s_showWaveMessageAtTime = 0;
+    s_pendingWaveMessage = -1;
+
+    // Clear active war identity
+    s_activeTerritory = nullptr;
+
+    // IMPORTANT: kill wanted freeze so it can’t stomp the loaded save’s wanted state
+    s_wantedLevelFrozen = false;
+    s_originalWantedLevel = 0;
+    s_originalWantedFlags = 0;
+    s_originalChaosLevel = 0;
+
+    // Optional: clear cached center/radius (not strictly needed, but keeps things clean)
+    s_warCenter = CVector(0.0f, 0.0f, 0.0f);
+    s_warRadius = 0.0f;
+}
+
+
 
 void WaveManager::CheckPlayerDeath() {
     CPlayerPed* player = CWorld::Players[0].m_pPed;

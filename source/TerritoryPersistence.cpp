@@ -1,6 +1,7 @@
 #include "TerritoryPersistence.h"
 #include "HookUtil.h"
 #include "TerritorySystem.h"
+#include "TerritoryRadarRenderer.h"
 #include "WaveManager.h"
 #include "PedDeathTracker.h"
 #include "DebugLog.h"
@@ -67,6 +68,7 @@ static unsigned int s_lastArmedSaveMs = 0;
 static const unsigned int kMagic = 0x31575447; // 'GTW1'
 static const unsigned int kLegacyVersion = 1;
 static const unsigned int kChunkedVersion = 2; // what we WRITE going forward
+static int s_pendingResetSlot = -1;
 
 static const unsigned int kTag_OWNR = 0x524E574F; // 'OWNR' little-endian
 
@@ -299,6 +301,9 @@ bool TerritoryPersistence::TryInstall() {
     return true;
 }
 
+static int s_lastLoadCompletedSlot = -1;
+static unsigned int s_lastLoadCompletedMs = 0;
+
 // ------------------------------------------------------------
 // Public API
 // ------------------------------------------------------------
@@ -312,7 +317,10 @@ void TerritoryPersistence::Init() {
 
     std::memset(s_used, 0, sizeof(s_used));
     s_pendingApplySlot = -1;
+    s_pendingResetSlot = -1;
     s_pendingWriteSlot = -1;
+    s_lastLoadCompletedSlot = -1;
+    s_lastLoadCompletedMs = 0;
 
     s_installed = TryInstall();
     DebugLog::Write("TerritoryPersistence: Init done installed=%d", s_installed ? 1 : 0);
@@ -329,6 +337,18 @@ void TerritoryPersistence::Process() {
 
     if (s_pendingApplySlot != -1) {
         if (!FrontEndMenuManager.m_bMenuActive) { // wait until back in-game
+            if (s_pendingResetSlot != -1) {
+                const int rslot = s_pendingResetSlot;
+                s_pendingResetSlot = -1;
+
+                DebugLog::Write("TerritoryPersistence: executing deferred reset for slot %d", rslot);
+
+                PedDeathTracker::SuppressKillCreditFor(1000);
+                WaveManager::ResetForLoad();
+                TerritorySystem::ClearAllWarsAndTransientState();
+                TerritoryRadarRenderer::ResetTransientState();
+            }
+
             int slot = s_pendingApplySlot;
             s_pendingApplySlot = -1;
 
@@ -382,7 +402,7 @@ FILESTREAM __cdecl TerritoryPersistence::OpenFileHook(const char* filePath, cons
 
         // If menu is active, only arm loads when the user actually confirmed loading.
         // If menu is NOT active, this is almost certainly a quickload/reload and must be treated as real.
-        const bool shouldArm = menuActive? (FrontEndMenuManager.m_bWantToLoad != 0) : true;
+        const bool shouldArm = menuActive ? (FrontEndMenuManager.m_bWantToLoad != 0) : true;
 
 
         if (shouldArm) {
@@ -454,23 +474,26 @@ void TerritoryPersistence::OnSaveCompleted(int slot) {
 
 void TerritoryPersistence::OnLoadCompleted(int slot)
 {
-    // Ignore menu preview reads (the thing you used to guard against).
-    // But allow quickload/reload when menu isn't active.
-    if (FrontEndMenuManager.m_bMenuActive && !IsLoadFlow()) {
-        DebugLog::Write("TerritoryPersistence: OnLoadCompleted ignored (not load flow)");
+    const unsigned int now = CTimer::m_snTimeInMilliseconds;
+
+    // Dedupe close/open weirdness: some flows hit CloseFile twice quickly for same slot.
+    if (slot == s_lastLoadCompletedSlot && (now - s_lastLoadCompletedMs) < 500) {
+        DebugLog::Write("TerritoryPersistence: ignoring duplicate OnLoadCompleted slot %d", slot);
         return;
     }
 
+    s_lastLoadCompletedSlot = slot;
+    s_lastLoadCompletedMs = now;
+
     DebugLog::Write("TerritoryPersistence: load completed slot %d -> clearing war/transient", slot);
 
-    // Prevent cleanup/deletion from generating kill credit + trigger spam
-    PedDeathTracker::SuppressKillCreditFor(1000);
-
-    WaveManager::CancelWar();
-    TerritorySystem::ClearAllWarsAndTransientState();
-
+    // Defer the reset until we're back in-game (Process()).
+    s_pendingResetSlot = slot;
     s_pendingApplySlot = slot;
 }
+
+
+
 
 // ------------------------------------------------------------
 // Parsing helpers
@@ -681,6 +704,10 @@ void TerritoryPersistence::LoadSidecarAndApply(int slot) {
     TerritorySystem::ApplyOwnershipState(entries);
 
     // DO NOT clear transient here; it was cleared at OnLoadCompleted()
+
+    // Note: do NOT overwrite defaultOwnerGang here.
+    // defaultOwnerGang represents territories.txt defaults; overwriting it causes
+    // loading a slot with *no* sidecar to incorrectly inherit the last-loaded slot's ownership.
 
     DebugLog::Write("TerritoryPersistence: applied slot %d entries=%d", slot, (int)entries.size());
 }

@@ -46,6 +46,8 @@ public:
 
     static bool ArePickupsActive() { return s_pickupsActive; }
 
+    static void ResetForLoad();
+
 private:
     // Wave progression
     static void BeginWave(int waveIndex);

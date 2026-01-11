@@ -8,4 +8,5 @@ struct Territory;
 class TerritoryRadarRenderer {
 public:
     static void DrawRadarOverlay(const std::vector<Territory>& territories);
+    static void ResetTransientState();
 };
