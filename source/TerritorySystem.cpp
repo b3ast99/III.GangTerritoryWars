@@ -313,6 +313,7 @@ bool TerritorySystem::GetPlayerXY(float& outX, float& outY) {
 }
 
 void TerritorySystem::TryReloadNow(bool showToastOnFail) {
+    DebugLog::Write("TerritorySystem::TryReloadNow called (warActive=%d)", (int)WaveManager::IsWarActive());
     // Snapshot runtime ownership BEFORE we reload the file.
     // This is the key: hot reload should keep the persisted/runtime ownership in memory,
     // not revert ownership back to defaults from territories.txt.
@@ -328,6 +329,8 @@ void TerritorySystem::TryReloadNow(bool showToastOnFail) {
             s_lastReloadFailToastMs = now;
             DebugLog::Write("TerritorySystem: Reload failed: %s", err.c_str());
         }
+        DebugLog::Write("TerritorySystem::TryReloadNow: LoadFromFile FAILED -> returning early (warActive=%d)",
+            (int)WaveManager::IsWarActive());
         return;
     }
 
@@ -337,10 +340,10 @@ void TerritorySystem::TryReloadNow(bool showToastOnFail) {
     }
 
 
-    // Swap in the new geometry/defaults from file…
+    // Swap in the new geometry/defaults from fileâ€¦
     s_territories.swap(next);
 
-    // …then re-apply runtime ownership from memory (sidecar state).
+    // â€¦then re-apply runtime ownership from memory (sidecar state).
     // Any IDs not found in prevOwnership will remain whatever the file says (defaults).
     ApplyOwnershipState(prevOwnership);
 
@@ -494,6 +497,18 @@ void TerritorySystem::ClearAllWarsAndTransientState() {
         // t.lastWarEndMs = 0;
         // t.pendingCapture = false;
         // etc...
+    }
+}
+
+void TerritorySystem::ClearAllUnderAttackFlags() {
+    for (Territory& t : s_territories) {
+        if (t.underAttack) {
+            t.underAttack = false;
+            DebugLog::Write(
+                "TerritorySystem: %s underAttack cleared due to load",
+                t.id.c_str()
+            );
+        }
     }
 }
 
