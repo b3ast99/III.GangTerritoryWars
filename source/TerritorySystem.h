@@ -62,6 +62,7 @@ public:
 
     // Transient cleanup
     static void ClearAllWarsAndTransientState();
+    static void ClearAllUnderAttackFlags();
 
     // Overlay
     static void ToggleOverlay();

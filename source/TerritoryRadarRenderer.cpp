@@ -20,6 +20,8 @@
 namespace {
 
     static constexpr float kPi = 3.14159265358979323846f;
+    static int s_flashingTerritoryId = -1;
+    static unsigned int s_flashStartTimeMs = 0;
 
     // [AttackFlash] INI settings
     struct FlashConfig {
@@ -336,12 +338,12 @@ namespace {
     };
 
     static RadarFrameCache gRadarCache;
-    #ifdef _DEBUG
+#ifdef _DEBUG
     static unsigned int s_cacheUpdates = 0;
     static unsigned int s_ellipseRebuilds = 0;
     static unsigned int s_drawTerritoryCalls = 0;
     static unsigned int s_lastPerfLogMs = 0;
-    #endif
+#endif
 
     static std::vector<CVector2D> MakeEllipsePolyLocal(float rx, float ry, int segs)
     {
@@ -361,9 +363,9 @@ namespace {
 
     static void UpdateRadarCache()
     {
-        #ifdef _DEBUG
+#ifdef _DEBUG
         ++s_cacheUpdates; // DEBUG
-        #endif  
+#endif  
         float unusedRadius = 0.0f;
         GetRadarCircleScreen(gRadarCache.center, unusedRadius);
 
@@ -391,9 +393,9 @@ namespace {
 
             gRadarCache.fillEllipseLocal =
                 MakeEllipsePolyLocal(gRadarCache.fillRx, gRadarCache.fillRy, gRadarCache.segs);
-            #ifdef _DEBUG
+#ifdef _DEBUG
             ++s_ellipseRebuilds;
-            #endif
+#endif
         }
     }
 
@@ -512,9 +514,9 @@ namespace {
     // -------------------------------
     static void DrawRadarTerritory(const Territory& t, const CRGBA& fill)
     {
-        #ifdef _DEBUG
+#ifdef _DEBUG
         ++s_drawTerritoryCalls; // DEBUG
-        #endif
+#endif
         const float x1 = t.minX;
         const float y1 = t.minY;
         const float x2 = t.maxX;
@@ -561,12 +563,12 @@ namespace {
         const std::vector<CVector2D> clippedLocal = ClipConvexCCW(quadLocal, gRadarCache.fillEllipseLocal);
         if (clippedLocal.size() < 3) return;
 
-        #ifdef _DEBUG
+#ifdef _DEBUG
         if (clippedLocal.size() > 512) {
             DebugLog::Write("[RadarPerf] WARNING: clippedLocal too large (%zu)", clippedLocal.size());
             return;
         }
-        #endif
+#endif
 
         clippedScreen.clear();
         clippedScreen.reserve(clippedLocal.size());
@@ -577,6 +579,12 @@ namespace {
 
 
 } // namespace
+
+void TerritoryRadarRenderer::ResetTransientState()
+{
+    s_flashingTerritoryId = -1;
+    s_flashStartTimeMs = 0;
+}
 
 void TerritoryRadarRenderer::DrawRadarOverlay(const std::vector<Territory>& territories)
 {
@@ -597,25 +605,16 @@ void TerritoryRadarRenderer::DrawRadarOverlay(const std::vector<Territory>& terr
     // Set overlay draw state once per frame
     SetRenderStateForOverlay();
 
-    const bool warActive = WaveManager::IsWarActive();
-    const Territory* active = WaveManager::GetActiveTerritory();
-
     for (const auto& t : territories) {
 
-        // Flash ONLY the active war territory.
-        const bool shouldFlash =
-            warActive &&
-            active &&
-            (t.id == active->id);
+        const bool shouldFlash = t.underAttack;
 
         const CRGBA fill = RGBAForOwner(t.ownerGang, shouldFlash, t.defenseLevel);
         DrawRadarTerritory(t, fill);
     }
-
-
     RestoreRenderState(rs);
 
-    #ifdef _DEBUG
+#ifdef _DEBUG
     const unsigned int now2 = CTimer::m_snTimeInMilliseconds;
     if (now2 - s_lastPerfLogMs >= 2500) {
         s_lastPerfLogMs = now2;
@@ -625,5 +624,5 @@ void TerritoryRadarRenderer::DrawRadarOverlay(const std::vector<Territory>& terr
         s_cacheUpdates = 0;
         s_ellipseRebuilds = 0;
     }
-    #endif
+#endif
 }
