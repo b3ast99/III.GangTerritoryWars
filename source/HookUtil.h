@@ -10,4 +10,6 @@ namespace HookUtil {
 	// Allocates a trampoline: copies stolen bytes from target, then appends a JMP back.
 	void* MakeTrampoline(void* target, std::size_t stolenBytes);
 
+	bool WriteRelCall(void* src, void* dst);
+
 } // namespace HookUtil

@@ -13,9 +13,12 @@
 #include "DamageHook.h"
 #include "DirectDamageTracker.h"
 #include "TerritoryPersistence.h"
+#include "PopulationAddPedHook.h"
 
 #include <windows.h>
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 
 static bool g_isTearingDown = false;
 using namespace plugin;
@@ -54,16 +57,19 @@ public:
     {
         Events::initRwEvent += [] {
             DebugLog::Initialize("III.GangTerritoryWars.log");
+            std::srand(static_cast<unsigned int>(std::time(nullptr)));
             GangManager::Initialize();
             WaveManager::Initialize();
             TerritorySystem::Init();
             TerritoryPersistence::Init();
             WarSystem::Init();
 
+            PopulationAddPedHook::Install();
+
             DirectDamageTracker::Initialize();
             PedDeathTracker::Initialize();
-
             DamageHook::Install();
+
 
             DebugLog::Write("GangTerritoryWars loaded");
             };
@@ -91,6 +97,8 @@ public:
         Events::gameProcessEvent += [] {
             if (g_isTearingDown) return;
 
+            GangManager::TryLateResolveModels();
+            PopulationAddPedHook::DebugTick();
             TerritorySystem::Process();
             TerritoryPersistence::Process();
             WarSystem::Process();

@@ -138,6 +138,7 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     <ClCompile Include="source\HookUtil.cpp" />
     <ClCompile Include="source\Main.cpp" />
     <ClCompile Include="source\PedDeathTracker.cpp" />
+    <ClCompile Include="source\PopulationAddPedHook.cpp" />
     <ClCompile Include="source\TerritoryPersistence.cpp" />
     <ClCompile Include="source\TerritoryRadarRenderer.cpp" />
     <ClCompile Include="source\TerritorySystem.cpp" />
@@ -159,6 +160,7 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     <ClInclude Include="source\HookUtil.h" />
     <ClInclude Include="source\IniConfig.h" />
     <ClInclude Include="source\PedDeathTracker.h" />
+    <ClInclude Include="source\PopulationAddPedHook.h" />
     <ClInclude Include="source\TerritoryPersistence.h" />
     <ClInclude Include="source\TerritoryRadarRenderer.h" />
     <ClInclude Include="source\TerritorySystem.h" />

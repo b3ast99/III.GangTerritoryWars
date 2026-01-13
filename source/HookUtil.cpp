@@ -1,5 +1,6 @@
 #include "HookUtil.h"
-#include <windows.h>
+#include <Windows.h>
+#include <cstdint>
 #include <cstring>
 
 namespace HookUtil {
@@ -35,6 +36,22 @@ namespace HookUtil {
 
         FlushInstructionCache(GetCurrentProcess(), tramp, stolenBytes + 5);
         return tramp;
+    }
+
+    bool WriteRelCall(void* src, void* dst)
+    {
+        DWORD oldProt;
+        if (!VirtualProtect(src, 5, PAGE_EXECUTE_READWRITE, &oldProt))
+            return false;
+
+        uint8_t* p = (uint8_t*)src;
+        p[0] = 0xE8; // CALL rel32
+
+        int32_t rel = (int32_t)((uint8_t*)dst - ((uint8_t*)src + 5));
+        std::memcpy(p + 1, &rel, sizeof(rel));
+
+        VirtualProtect(src, 5, oldProt, &oldProt);
+        return true;
     }
 
 } // namespace HookUtil
