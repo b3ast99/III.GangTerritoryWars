@@ -23,7 +23,5 @@ public:
     static int GetRandomModelId(ePedType gangType);
     static const char* GetGangName(ePedType gangType);
     static int GetGangBlipColor(ePedType gangType);
-
-private:
     static GangInfo s_gangs[3];
 };

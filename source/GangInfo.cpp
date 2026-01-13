@@ -103,17 +103,13 @@ void GangManager::TryLateResolveModels()
 
     // If *any* resolved, we’re happy; if none resolved after 20 attempts we stop trying.
     if (anyResolved) {
-        for (const auto& g : s_gangs) {
-            for (int mid : g.modelIds) {
-                if (mid >= 0) {
-                    CStreaming::RequestModel(mid, GAME_REQUIRED | KEEP_IN_MEMORY);  // Use GAME_REQUIRED for ambient
-                    DebugLog::Write("GangInfo: Requested preload for model %d (gangType=%d)", mid, (int)g.gangType);
-                }
-            }
-        }
-        CStreaming::LoadAllRequestedModels(true);  // Block briefly to ensure loaded
+        // No duplicate requests - preload already happened in Main.cpp
+        // Comment out or remove these lines:
+        // for (const auto& g : s_gangs) { ... RequestModel ... }
+        // CStreaming::LoadAllRequestedModels(true);
+
         s_done = true;
-        DebugLog::Write("GangInfo: late resolve SUCCESS");
+        DebugLog::Write("GangInfo: late resolve SUCCESS (models already preloaded)");
     }
     else if (s_attempts == 1) {
         DebugLog::Write("GangInfo: late resolve attempt started (will retry)");

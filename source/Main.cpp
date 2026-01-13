@@ -14,6 +14,7 @@
 #include "DirectDamageTracker.h"
 #include "TerritoryPersistence.h"
 #include "PopulationAddPedHook.h"
+#include "CStreaming.h"
 
 #include <windows.h>
 #include <cstdio>
@@ -57,6 +58,7 @@ public:
     {
         Events::initRwEvent += [] {
             DebugLog::Initialize("III.GangTerritoryWars.log");
+            // Seed rand once at init
             std::srand(static_cast<unsigned int>(std::time(nullptr)));
             GangManager::Initialize();
             WaveManager::Initialize();
@@ -69,7 +71,6 @@ public:
             DirectDamageTracker::Initialize();
             PedDeathTracker::Initialize();
             DamageHook::Install();
-
 
             DebugLog::Write("GangTerritoryWars loaded");
             };
@@ -96,6 +97,41 @@ public:
 
         Events::gameProcessEvent += [] {
             if (g_isTearingDown) return;
+
+            // One-time model preloading on first game tick
+            static bool s_modelsPreloaded = false;
+            if (!s_modelsPreloaded) {
+                DebugLog::Write("Starting one-time model preload (first tick)...");
+
+                // Gang models
+                for (int i = 0; i < 3; ++i) {
+                    const GangInfo& gang = GangManager::s_gangs[i];  // Now accessible via public or accessor
+                    for (int modelId : gang.modelIds) {
+                        if (modelId >= 0 && CModelInfo::GetModelInfo(modelId)) {
+                            CStreaming::RequestModel(modelId, GAME_REQUIRED | KEEP_IN_MEMORY);
+                            DebugLog::Write("Preloaded gang model: %d (gang %d)", modelId, i);
+                        }
+                    }
+                }
+
+                // Civilian models - trimmed safe list
+                static const std::vector<int> civModels = {
+                    30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+                    41, 44, 45, 46, 47, 48, 49, 50, 51, 52
+                };
+
+                for (int mid : civModels) {
+                    if (mid >= 0 && CModelInfo::GetModelInfo(mid)) {
+                        CStreaming::RequestModel(mid, GAME_REQUIRED | KEEP_IN_MEMORY);
+                        DebugLog::Write("Preloaded civ model: %d", mid);
+                    }
+                }
+
+                CStreaming::LoadAllRequestedModels(false);  // Non-blocking
+                DebugLog::Write("Model preload complete (first tick)");
+
+                s_modelsPreloaded = true;
+            }
 
             GangManager::TryLateResolveModels();
             PopulationAddPedHook::DebugTick();

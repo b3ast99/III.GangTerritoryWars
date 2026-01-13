@@ -6,6 +6,9 @@ extern "C" {
     extern volatile uint32_t g_PopAddPed_HitCount;
     extern volatile uint32_t g_PopAddPed_GangHitCount;
     extern volatile uint32_t g_PopAddPed_RewriteCount;
+    extern volatile uint32_t g_PopAddPed_CivRewriteCount;
+    extern volatile uint32_t g_PopAddPed_SkippedDueToRate;
+    extern volatile uint32_t g_PopAddPed_SkippedDueToDensity;
     extern volatile uint32_t g_PopAddPed_LastPedType;
     extern volatile uint32_t g_PopAddPed_LastModelArg;
     extern volatile uint32_t g_PopAddPed_LastOwnerGang;
