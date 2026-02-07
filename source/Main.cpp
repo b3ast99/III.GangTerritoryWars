@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <vector>
 
 static bool g_isTearingDown = false;
 using namespace plugin;
@@ -114,11 +115,8 @@ public:
                     }
                 }
 
-                // Civilian models - trimmed safe list
-                static const std::vector<int> civModels = {
-                    30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
-                    41, 44, 45, 46, 47, 48, 49, 50, 51, 52
-                };
+                // Civilian models used by ambient downgrade logic
+                const std::vector<int>& civModels = GangManager::GetAmbientCivilianModelIds();
 
                 for (int mid : civModels) {
                     if (mid >= 0 && CModelInfo::GetModelInfo(mid)) {

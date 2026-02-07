@@ -21,6 +21,8 @@ public:
 
     static const GangInfo* GetGangInfo(ePedType gangType);
     static int GetRandomModelId(ePedType gangType);
+    static bool IsGangModelId(int modelId);
+    static const std::vector<int>& GetAmbientCivilianModelIds();
     static const char* GetGangName(ePedType gangType);
     static int GetGangBlipColor(ePedType gangType);
     static GangInfo s_gangs[3];

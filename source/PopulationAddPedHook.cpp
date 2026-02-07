@@ -9,10 +9,11 @@
 #include "CWorld.h"           // NEW: for FindObjectsInRange
 #include "CPed.h"             // for CPed and m_ePedType
 #include "CStreaming.h"
+#include "CPopulation.h"
 
 #include <Windows.h>
 #include <cstdint>
-#include <vector>             // NEW: for civ model list
+#include <cmath>
 
 // ------------------------------------------------------------
 // Diagnostic globals
@@ -45,29 +46,35 @@ static constexpr float REWRITE_PROB_CIV = 0.25f;  // 25% chance to convert civil
 static constexpr float DENSITY_CHECK_RADIUS = 50.0f;  // meters
 static constexpr int   MAX_GANG_IN_AREA = 5;     // don't spawn more if already this many owner gang nearby
 
-// NEW: Civilian model IDs (filtered from your list: safe civilians, no gangs/cops/specials/emergency)
-static const std::vector<int> s_civilianModels = {
-    30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
-    50, 51, 52, 53, 55, 56, 57, 58, 59, 60, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75,
-    76, 77, 78, 79, 80, 81, 82, 83
-};
+static constexpr unsigned int AMBIENT_INJECT_INTERVAL_MS = 5000;
+static constexpr float AMBIENT_INJECT_RADIUS_MIN = 20.0f;
+static constexpr float AMBIENT_INJECT_RADIUS_MAX = 40.0f;
+static constexpr float AMBIENT_INJECT_MAX_PLAYER_DIST = 120.0f;
 
-// NEW: Helper to get random civilian model
+static bool s_bypassRewriteForAmbientInject = false;
+
+// Shared civilian model IDs list (see GangInfo.cpp)
 static int GetRandomCivModel() {
-    if (s_civilianModels.empty()) return 30;  // fallback
-    return s_civilianModels[std::rand() % s_civilianModels.size()];
+    const std::vector<int>& civModels = GangManager::GetAmbientCivilianModelIds();
+    if (civModels.empty()) return 30;
+    return civModels[std::rand() % civModels.size()];
 }
 
 // IMPORTANT:
 // We only rewrite when the game is *already* trying to spawn a gang model OR a civilian.
 static inline bool IsGangModelIndex(unsigned int modelIdx)
 {
-    return (modelIdx >= 10 && modelIdx <= 15);
+    return GangManager::IsGangModelId((int)modelIdx);
 }
 
 static inline bool IsCivilianPedType(ePedType t)
 {
     return (t == PEDTYPE_CIVMALE || t == PEDTYPE_CIVFEMALE);
+}
+
+static inline bool IsGangPedType(ePedType t)
+{
+    return (t >= PEDTYPE_GANG1 && t <= PEDTYPE_GANG9);
 }
 
 // In PopulationAddPedHook.cpp, add near the top (after includes)
@@ -134,23 +141,30 @@ CPed* __cdecl PopulationAddPedHook::AddPedHook(ePedType pedType, unsigned int mo
     g_PopAddPed_LastPedType = (uint32_t)pedType;
     g_PopAddPed_LastModelArg = (uint32_t)modelIndexOrCopType;
 
+    if (s_bypassRewriteForAmbientInject) {
+        return s_original ? s_original(pedType, modelIndexOrCopType, coors) : nullptr;
+    }
+
     bool shouldOverride = false;
     bool wasCivilian = false;
     bool shouldDowngradeToCiv = false;  // NEW: for rate/density skips on gangs
 
     const Territory* t = nullptr;
     int ownerGang = -1;
+    g_PopAddPed_LastOwnerGang = 0xFFFFFFFFu;
 
     if (s_enabled) {
         t = TerritorySystem::GetTerritoryAtPoint(coors);
         ownerGang = (t ? t->ownerGang : -1);
-        g_PopAddPed_LastOwnerGang = (uint32_t)ownerGang;
+        if (ownerGang >= 0) {
+            g_PopAddPed_LastOwnerGang = (uint32_t)ownerGang;
+        }
 
         if (t && ownerGang >= (int)PEDTYPE_GANG1 && ownerGang <= (int)PEDTYPE_GANG9) {
             const ePedType targetType = (ePedType)ownerGang;
 
-            // Case 1: Original spawn is already a gang ped -> consider replacement
-            if (IsGangModelIndex(modelIndexOrCopType)) {
+            // Case 1: Original spawn is a gang ped/model -> consider replacement
+            if (IsGangPedType(pedType) || IsGangModelIndex(modelIndexOrCopType)) {
                 g_PopAddPed_GangHitCount++;
                 shouldOverride = true;
             }
@@ -237,7 +251,7 @@ CPed* __cdecl PopulationAddPedHook::AddPedHook(ePedType pedType, unsigned int mo
                     }
                 }
                 // NEW: Downgrade wrong gang to random civ
-                else if (shouldDowngradeToCiv && IsGangModelIndex(modelIndexOrCopType)) {
+                else if (shouldDowngradeToCiv && (IsGangPedType(pedType) || IsGangModelIndex(modelIndexOrCopType))) {
                     const int desiredCivModel = GetRandomCivModel();
 
                     // Only downgrade if the model is confirmed loaded
@@ -265,9 +279,87 @@ CPed* __cdecl PopulationAddPedHook::AddPedHook(ePedType pedType, unsigned int mo
     return s_original ? s_original(pedType, modelIndexOrCopType, coors) : nullptr;
 }
 
+static void TryAmbientInjectGangPed()
+{
+    static unsigned int s_nextInjectMs = 0;
+    const unsigned int now = CTimer::m_snTimeInMilliseconds;
+    if (now < s_nextInjectMs) return;
+    s_nextInjectMs = now + AMBIENT_INJECT_INTERVAL_MS;
+
+    CPlayerPed* player = CWorld::Players[0].m_pPed;
+    if (!player) return;
+
+    const CVector playerPos = player->GetPosition();
+    const Territory* t = TerritorySystem::GetTerritoryAtPoint(playerPos);
+    if (!t) return;
+
+    const int ownerGang = t->ownerGang;
+    if (ownerGang < (int)PEDTYPE_GANG1 || ownerGang > (int)PEDTYPE_GANG9) return;
+
+    CEntity* nearby[32]{};
+    short numNearby = 0;
+    CWorld::FindObjectsInRange(
+        playerPos,
+        AMBIENT_INJECT_MAX_PLAYER_DIST,
+        true,
+        &numNearby,
+        32,
+        nearby,
+        false,
+        false,
+        true,
+        false,
+        false
+    );
+
+    int ownerGangCount = 0;
+    for (short i = 0; i < numNearby; ++i) {
+        CEntity* ent = nearby[i];
+        if (ent && ent->m_nType == ENTITY_TYPE_PED) {
+            CPed* p = static_cast<CPed*>(ent);
+            if (p->m_ePedType == (ePedType)ownerGang) {
+                ownerGangCount++;
+            }
+        }
+    }
+
+    if (ownerGangCount >= MAX_GANG_IN_AREA) return;
+
+    const float angle = plugin::RandomNumberInRange(0.0f, 6.283185307f);
+    const float dist = plugin::RandomNumberInRange(AMBIENT_INJECT_RADIUS_MIN, AMBIENT_INJECT_RADIUS_MAX);
+
+    CVector spawnPos = playerPos;
+    spawnPos.x += std::cos(angle) * dist;
+    spawnPos.y += std::sin(angle) * dist;
+
+    if (spawnPos.x < t->minX) spawnPos.x = t->minX + 1.0f;
+    if (spawnPos.x > t->maxX) spawnPos.x = t->maxX - 1.0f;
+    if (spawnPos.y < t->minY) spawnPos.y = t->minY + 1.0f;
+    if (spawnPos.y > t->maxY) spawnPos.y = t->maxY - 1.0f;
+
+    bool foundGround = false;
+    float gz = CWorld::FindGroundZFor3DCoord(spawnPos.x, spawnPos.y, playerPos.z + 50.0f, &foundGround);
+    if (!foundGround) return;
+    spawnPos.z = gz + 1.0f;
+
+    const int modelId = GangManager::GetRandomModelId((ePedType)ownerGang);
+    if (modelId < 0 || !IsModelLoaded(modelId)) return;
+
+    s_bypassRewriteForAmbientInject = true;
+    CPed* injected = CPopulation::AddPed((ePedType)ownerGang, (unsigned)modelId, spawnPos);
+    s_bypassRewriteForAmbientInject = false;
+
+    if (injected) {
+        DebugLog::Write("AmbientInject: spawned gang ped terr=%s gang=%d model=%d at %.1f,%.1f,%.1f",
+            t->id.c_str(), ownerGang, modelId, spawnPos.x, spawnPos.y, spawnPos.z);
+    }
+}
+
 void PopulationAddPedHook::DebugTick()
 {
     if (!s_installed) return;
+
+    TryAmbientInjectGangPed();
 
     static unsigned int nextMs = 0;
     const unsigned int now = CTimer::m_snTimeInMilliseconds;
