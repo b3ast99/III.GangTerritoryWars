@@ -268,7 +268,6 @@ CPed* __cdecl PopulationAddPedHook::AddPedHook(ePedType pedType, unsigned int mo
                 }
             }
         }
-    }
 
     return s_original ? s_original(pedType, modelIndexOrCopType, coors) : nullptr;
 }
