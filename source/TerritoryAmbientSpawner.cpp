@@ -30,10 +30,10 @@ static bool  s_enabled = true;
 static float s_checkRadius = 75.0f;
 
 // How many owner-gang peds we want ambiently around (soft target)
-static int   s_targetGangPeds = 2;
+static int   s_targetGangPeds = 1;
 
 // Hard cap (never exceed this many owner-gang peds within radius)
-static int   s_hardCapGangPeds = 4;
+static int   s_hardCapGangPeds = 2;
 
 // Spawn distance band from player (avoid popping on top of player)
 static float s_spawnMinDist = 25.0f;
@@ -43,11 +43,11 @@ static float s_spawnMaxDist = 55.0f;
 static int   s_spawnAttempts = 10;
 
 // Rate limiting
-static unsigned int s_globalCooldownMs = 2200;     // at most 1 spawn per ~2.2s overall
-static unsigned int s_perTerritoryCooldownMs = 5200; // at most 1 spawn per territory per ~5.2s
+static unsigned int s_globalCooldownMs = 3500;     // at most 1 spawn per ~3.5s overall
+static unsigned int s_perTerritoryCooldownMs = 7000; // at most 1 spawn per territory per ~7.0s
 
 // Extra throttle to avoid runaway in weird scenarios
-static unsigned int s_noSpawnBackoffMs = 1300; // if we decide not to spawn, wait a bit
+static unsigned int s_noSpawnBackoffMs = 1800; // if we decide not to spawn, wait a bit
 
 // State
 static unsigned int s_nextGlobalActionMs = 0;

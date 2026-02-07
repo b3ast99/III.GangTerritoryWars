@@ -10,6 +10,7 @@
 #include "CWorld.h"           // NEW: for FindObjectsInRange
 #include "CPed.h"             // for CPed and m_ePedType
 #include "CStreaming.h"
+#include "CModelInfo.h"
 #include "CPopulation.h"
 
 #include <Windows.h>
@@ -42,9 +43,9 @@ PopulationAddPedHook::AddPed_t PopulationAddPedHook::s_original = nullptr;
 // ------------------------------------------------------------
 // Configuration constants (tune these!)
 // ------------------------------------------------------------
-static constexpr float REWRITE_PROB_CIV = 0.10f;  // 10% chance to convert civilian
-static constexpr float DENSITY_CHECK_RADIUS = 45.0f;  // meters
-static constexpr int   MAX_GANG_IN_AREA = 4;     // don't spawn more if already this many owner gang nearby
+static constexpr float REWRITE_PROB_CIV = 0.00f;  // disabled: keep ambient pressure low
+static constexpr float DENSITY_CHECK_RADIUS = 40.0f;  // meters
+static constexpr int   MAX_GANG_IN_AREA = 3;     // don't spawn more if already this many owner gang nearby
 
 static constexpr unsigned int AMBIENT_INJECT_INTERVAL_MS = 5000;
 static constexpr float AMBIENT_INJECT_RADIUS_MIN = 20.0f;
@@ -87,6 +88,17 @@ static bool IsModelLoaded(int modelIndex) {
     // - Load state == LOADSTATE_LOADED (1)
     // - And it has been requested at some point (flags or state indicate it's in memory)
     return (info.m_nLoadState == LOADSTATE_LOADED);
+}
+
+static bool EnsureModelLoaded(int modelIndex) {
+    if (modelIndex < 0) return false;
+    if (!CModelInfo::GetModelInfo(modelIndex)) return false;
+
+    if (IsModelLoaded(modelIndex)) return true;
+
+    CStreaming::RequestModel(modelIndex, GAME_REQUIRED | KEEP_IN_MEMORY);
+    CStreaming::LoadAllRequestedModels(false);
+    return IsModelLoaded(modelIndex);
 }
 
 bool PopulationAddPedHook::IsInstalled() { return s_installed; }
@@ -249,7 +261,7 @@ CPed* __cdecl PopulationAddPedHook::AddPedHook(ePedType pedType, unsigned int mo
                     const int desiredCivModel = GetRandomCivModel();
 
                     // Only downgrade if the model is confirmed loaded
-                    if (IsModelLoaded(desiredCivModel)) {
+                    if (EnsureModelLoaded(desiredCivModel)) {
                         pedType = (std::rand() % 2 == 0) ? PEDTYPE_CIVMALE : PEDTYPE_CIVFEMALE;
                         modelIndexOrCopType = (unsigned)desiredCivModel;
                         g_PopAddPed_CivRewriteCount++;

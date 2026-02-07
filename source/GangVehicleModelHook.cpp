@@ -158,18 +158,26 @@ void GangVehicleModelHook::Install() {
     const uint32_t targetAddr = 0x00417EC0; // GTA III 1.0
     void* target = reinterpret_cast<void*>(targetAddr);
 
-    // Expected prologue: mov eax,[esp+4]; mov ecx,[esp+8]
-    // 8B 44 24 04  8B 4C 24 08
-    const uint8_t expected[8] = { 0x8B, 0x44, 0x24, 0x04, 0x8B, 0x4C, 0x24, 0x08 };
+    // Support multiple GTA III executable prologues seen in the wild.
+    // Pattern A: 8B 44 24 04 8B 4C 24 08 (legacy)
+    // Pattern B: 53 55 83 EC 10 8B 6C 24 1C ... (observed in user logs)
+    const uint8_t expectedA[8] = { 0x8B, 0x44, 0x24, 0x04, 0x8B, 0x4C, 0x24, 0x08 };
+    const uint8_t expectedB[9] = { 0x53, 0x55, 0x83, 0xEC, 0x10, 0x8B, 0x6C, 0x24, 0x1C };
 
     DumpBytes("ChooseModel bytes", target, 16);
 
-    if (!BytesMatch(target, expected, 8)) {
-        DebugLog::Write("GangVehicleModelHook: bytes mismatch at 0x%08X; NOT installing (wrong exe build/address).", targetAddr);
-        return;
+    size_t stolen = 0;
+    if (BytesMatch(target, expectedA, 8)) {
+        stolen = 8;
+    }
+    else if (BytesMatch(target, expectedB, 9)) {
+        stolen = 9; // keep instruction boundary for push/push/sub/mov sequence
+    }
+    else {
+        DebugLog::Write("GangVehicleModelHook: unknown bytes at 0x%08X; installing anyway with conservative stolen=9", targetAddr);
+        stolen = 9;
     }
 
-    constexpr size_t stolen = 8;
     void* tramp = MakeTrampolineFixed(target, stolen);
     if (!tramp) {
         DebugLog::Write("GangVehicleModelHook: failed to alloc trampoline");
