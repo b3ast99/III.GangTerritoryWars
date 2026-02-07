@@ -8,6 +8,7 @@ struct GangInfo {
     ePedType gangType{};
     std::string displayName;
     std::vector<int> modelIds;
+    std::vector<int> vehicleModelIds;
     eWeaponType defaultWeapon{};
     int blipColor{};
 };
@@ -22,6 +23,8 @@ public:
     static const GangInfo* GetGangInfo(ePedType gangType);
     static int GetRandomModelId(ePedType gangType);
     static bool IsGangModelId(int modelId);
+    static int GetRandomVehicleModelId(ePedType gangType);
+    static bool IsGangVehicleModelId(int modelId);
     static const std::vector<int>& GetAmbientCivilianModelIds();
     static const char* GetGangName(ePedType gangType);
     static int GetGangBlipColor(ePedType gangType);

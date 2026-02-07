@@ -14,6 +14,7 @@
 #include "DirectDamageTracker.h"
 #include "TerritoryPersistence.h"
 #include "PopulationAddPedHook.h"
+#include "AmbientGangVehicleSpawner.h"
 #include "CStreaming.h"
 
 #include <windows.h>
@@ -115,6 +116,17 @@ public:
                     }
                 }
 
+                // Gang vehicle models
+                for (int i = 0; i < 3; ++i) {
+                    const GangInfo& gang = GangManager::s_gangs[i];
+                    for (int modelId : gang.vehicleModelIds) {
+                        if (modelId >= 0 && CModelInfo::GetModelInfo(modelId)) {
+                            CStreaming::RequestModel(modelId, GAME_REQUIRED | KEEP_IN_MEMORY);
+                            DebugLog::Write("Preloaded gang vehicle model: %d (gang %d)", modelId, i);
+                        }
+                    }
+                }
+
                 // Civilian models used by ambient downgrade logic
                 const std::vector<int>& civModels = GangManager::GetAmbientCivilianModelIds();
 
@@ -133,6 +145,7 @@ public:
 
             GangManager::TryLateResolveModels();
             PopulationAddPedHook::DebugTick();
+            AmbientGangVehicleSpawner::Process();
             TerritorySystem::Process();
             TerritoryPersistence::Process();
             WarSystem::Process();

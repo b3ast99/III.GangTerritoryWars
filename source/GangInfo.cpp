@@ -35,6 +35,20 @@ static void SetFallbackModels(std::vector<int>& out, std::initializer_list<int> 
     out.assign(fallback.begin(), fallback.end());
 }
 
+
+static bool TryResolveVehicleModelsInto(std::vector<int>& out, std::initializer_list<const char*> modelNames)
+{
+    out.clear();
+    for (const char* name : modelNames) {
+        const int modelId = ResolveModelIndexByName(name);
+        if (modelId >= 0) {
+            out.push_back(modelId);
+        }
+    }
+
+    return !out.empty();
+}
+
 static bool TryResolveInto(std::vector<int>& out, const char* a, const char* b)
 {
     const int ia = ResolveModelIndexByName(a);
@@ -58,6 +72,7 @@ void GangManager::Initialize()
     s_gangs[0].defaultWeapon = WEAPONTYPE_COLT45;
     s_gangs[0].blipColor = BLIP_COLOUR_RED;
     SetFallbackModels(s_gangs[0].modelIds, { 10, 11 });
+    SetFallbackModels(s_gangs[0].vehicleModelIds, { 90, 91 });
 
     // Triads
     s_gangs[1].gangType = PEDTYPE_GANG2;
@@ -65,6 +80,7 @@ void GangManager::Initialize()
     s_gangs[1].defaultWeapon = WEAPONTYPE_UZI;
     s_gangs[1].blipColor = BLIP_COLOUR_GREEN;
     SetFallbackModels(s_gangs[1].modelIds, { 12, 13 });
+    SetFallbackModels(s_gangs[1].vehicleModelIds, { 101, 102 });
 
     // Diablos
     s_gangs[2].gangType = PEDTYPE_GANG3;
@@ -72,6 +88,7 @@ void GangManager::Initialize()
     s_gangs[2].defaultWeapon = WEAPONTYPE_UZI;
     s_gangs[2].blipColor = BLIP_COLOUR_YELLOW;
     SetFallbackModels(s_gangs[2].modelIds, { 14, 15 });
+    SetFallbackModels(s_gangs[2].vehicleModelIds, { 130, 131 });
 
     // Try once immediately (may fail early; that’s fine)
     TryLateResolveModels();
@@ -107,6 +124,21 @@ void GangManager::TryLateResolveModels()
     if (TryResolveInto(s_gangs[2].modelIds, "gang05", "gang06")) {
         DebugLog::Write("GangInfo: resolved Diablos by name -> %d,%d",
             s_gangs[2].modelIds[0], s_gangs[2].modelIds.size() > 1 ? s_gangs[2].modelIds[1] : -1);
+        anyResolved = true;
+    }
+
+    if (TryResolveVehicleModelsInto(s_gangs[0].vehicleModelIds, { "sentinel", "kuruma" })) {
+        DebugLog::Write("GangInfo: resolved Mafia vehicles by name -> %d entries", (int)s_gangs[0].vehicleModelIds.size());
+        anyResolved = true;
+    }
+
+    if (TryResolveVehicleModelsInto(s_gangs[1].vehicleModelIds, { "moonbeam", "pony" })) {
+        DebugLog::Write("GangInfo: resolved Triad vehicles by name -> %d entries", (int)s_gangs[1].vehicleModelIds.size());
+        anyResolved = true;
+    }
+
+    if (TryResolveVehicleModelsInto(s_gangs[2].vehicleModelIds, { "stallion", "manana" })) {
+        DebugLog::Write("GangInfo: resolved Diablo vehicles by name -> %d entries", (int)s_gangs[2].vehicleModelIds.size());
         anyResolved = true;
     }
 
@@ -159,10 +191,31 @@ int GangManager::GetGangBlipColor(ePedType gangType)
 }
 
 
+int GangManager::GetRandomVehicleModelId(ePedType gangType)
+{
+    const GangInfo* info = GetGangInfo(gangType);
+    if (!info || info->vehicleModelIds.empty())
+        return -1;
+
+    return info->vehicleModelIds[std::rand() % info->vehicleModelIds.size()];
+}
+
 bool GangManager::IsGangModelId(int modelId)
 {
     for (const auto& g : s_gangs) {
         for (int mid : g.modelIds) {
+            if (mid == modelId) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool GangManager::IsGangVehicleModelId(int modelId)
+{
+    for (const auto& g : s_gangs) {
+        for (int mid : g.vehicleModelIds) {
             if (mid == modelId) {
                 return true;
             }

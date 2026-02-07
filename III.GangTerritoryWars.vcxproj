@@ -130,6 +130,7 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="source\AmbientGangVehicleSpawner.cpp" />
     <ClCompile Include="source\DamageHook.cpp" />
     <ClCompile Include="source\DebugLog.cpp" />
     <ClCompile Include="source\DirectDamageTracker.cpp" />
@@ -152,6 +153,7 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     <ClCompile Include="source\WaveSpawning.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="source\AmbientGangVehicleSpawner.h" />
     <ClInclude Include="source\DamageHook.h" />
     <ClInclude Include="source\DebugLog.h" />
     <ClInclude Include="source\DirectDamageTracker.h" />
