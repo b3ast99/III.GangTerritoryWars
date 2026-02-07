@@ -7,6 +7,7 @@
 #include "CVehicle.h"
 #include "CPools.h"
 #include "eScriptCommands.h"
+#include "ScriptCommandCompat.h"
 
 #include "TerritorySystem.h"
 #include "GangInfo.h"
@@ -85,13 +86,13 @@ namespace {
         }
 
         int newHandle = -1;
-        Command<COMMAND_CREATE_CAR>(desiredModel, pos.x, pos.y, pos.z, &newHandle);
+        if (!ScriptCommandCompat::CreateCar(desiredModel, pos.x, pos.y, pos.z, &newHandle)) return false;
         if (newHandle < 0) {
             return false;
         }
 
-        Command<COMMAND_SET_CAR_HEADING>(newHandle, heading);
-        Command<COMMAND_DELETE_CAR>(oldHandle);
+        ScriptCommandCompat::SetCarHeading(newHandle, heading);
+        ScriptCommandCompat::DeleteCar(oldHandle);
 
         DebugLog::Write("AmbientVehicle REWRITE: terr=%s owner=%d oldModel=%d newModel=%d at %.1f,%.1f,%.1f",
             territory.id.c_str(), ownerGang, vehicle->m_nModelIndex, desiredModel, pos.x, pos.y, pos.z);
@@ -182,13 +183,13 @@ namespace {
         }
 
         int vehicleHandle = -1;
-        Command<COMMAND_CREATE_CAR>(vehicleModel, spawnPos.x, spawnPos.y, spawnPos.z, &vehicleHandle);
+        if (!ScriptCommandCompat::CreateCar(vehicleModel, spawnPos.x, spawnPos.y, spawnPos.z, &vehicleHandle)) return false;
         if (vehicleHandle < 0) {
             return false;
         }
 
         const float heading = plugin::RandomNumberInRange(0.0f, 359.0f);
-        Command<COMMAND_SET_CAR_HEADING>(vehicleHandle, heading);
+        ScriptCommandCompat::SetCarHeading(vehicleHandle, heading);
 
         DebugLog::Write("AmbientVehicle: spawned gang vehicle terr=%s gang=%d model=%d at %.1f,%.1f,%.1f",
             territory.id.c_str(), ownerGang, vehicleModel, spawnPos.x, spawnPos.y, spawnPos.z);

@@ -163,6 +163,7 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     <ClInclude Include="source\IniConfig.h" />
     <ClInclude Include="source\PedDeathTracker.h" />
     <ClInclude Include="source\PopulationAddPedHook.h" />
+    <ClInclude Include="source\ScriptCommandCompat.h" />
     <ClInclude Include="source\TerritoryPersistence.h" />
     <ClInclude Include="source\TerritoryRadarRenderer.h" />
     <ClInclude Include="source\TerritorySystem.h" />
