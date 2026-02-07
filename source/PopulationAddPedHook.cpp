@@ -6,6 +6,7 @@
 #include "CTimer.h"
 #include "TerritorySystem.h"
 #include "GangInfo.h"
+#include "GangVehicleModelHook.h"
 #include "CWorld.h"           // NEW: for FindObjectsInRange
 #include "CPed.h"             // for CPed and m_ePedType
 #include "CStreaming.h"
@@ -41,10 +42,9 @@ PopulationAddPedHook::AddPed_t PopulationAddPedHook::s_original = nullptr;
 // ------------------------------------------------------------
 // Configuration constants (tune these!)
 // ------------------------------------------------------------
-static constexpr float REWRITE_PROB_GANG = 0.70f;  // 70% chance to replace existing gang spawn
-static constexpr float REWRITE_PROB_CIV = 0.25f;  // 25% chance to convert civilian
-static constexpr float DENSITY_CHECK_RADIUS = 50.0f;  // meters
-static constexpr int   MAX_GANG_IN_AREA = 5;     // don't spawn more if already this many owner gang nearby
+static constexpr float REWRITE_PROB_CIV = 0.10f;  // 10% chance to convert civilian
+static constexpr float DENSITY_CHECK_RADIUS = 45.0f;  // meters
+static constexpr int   MAX_GANG_IN_AREA = 4;     // don't spawn more if already this many owner gang nearby
 
 static constexpr unsigned int AMBIENT_INJECT_INTERVAL_MS = 5000;
 static constexpr float AMBIENT_INJECT_RADIUS_MIN = 20.0f;
@@ -151,42 +151,36 @@ CPed* __cdecl PopulationAddPedHook::AddPedHook(ePedType pedType, unsigned int mo
 
     const Territory* t = nullptr;
     int ownerGang = -1;
+    int contextOwnerGang = -1;
+    const bool hasVehicleContext = GangVehicleModelHook::TryConsumeOwnerGangForSpawn(coors, contextOwnerGang);
+
     g_PopAddPed_LastOwnerGang = 0xFFFFFFFFu;
 
     if (s_enabled) {
         t = TerritorySystem::GetTerritoryAtPoint(coors);
-        ownerGang = (t ? t->ownerGang : -1);
+        ownerGang = hasVehicleContext ? contextOwnerGang : (t ? t->ownerGang : -1);
         if (ownerGang >= 0) {
             g_PopAddPed_LastOwnerGang = (uint32_t)ownerGang;
         }
 
-        if (t && ownerGang >= (int)PEDTYPE_GANG1 && ownerGang <= (int)PEDTYPE_GANG9) {
+        if ((t || hasVehicleContext) && ownerGang >= (int)PEDTYPE_GANG1 && ownerGang <= (int)PEDTYPE_GANG9) {
             const ePedType targetType = (ePedType)ownerGang;
 
-            // Case 1: Original spawn is a gang ped/model -> consider replacement
+            // Case 1: Original spawn is gang-related -> always enforce territory/vehicle owner gang.
             if (IsGangPedType(pedType) || IsGangModelIndex(modelIndexOrCopType)) {
                 g_PopAddPed_GangHitCount++;
                 shouldOverride = true;
             }
-            // Case 2: Original spawn is civilian -> lower chance to convert
-            else if (IsCivilianPedType(pedType)) {
+            // Case 2: civilian population can be converted at low probability (non-vehicle-context only)
+            else if (!hasVehicleContext && IsCivilianPedType(pedType)) {
                 if (plugin::RandomNumberInRange(0.0f, 1.0f) < REWRITE_PROB_CIV) {
                     shouldOverride = true;
                     wasCivilian = true;
                 }
             }
 
-            if (shouldOverride) {
-                // Rate limiting: probabilistic skip for gang spawns -> downgrade to civ if skipped
-                if (!wasCivilian && plugin::RandomNumberInRange(0.0f, 1.0f) > REWRITE_PROB_GANG) {
-                    g_PopAddPed_SkippedDueToRate++;
-                    shouldOverride = false;
-                    shouldDowngradeToCiv = true;  // NEW
-                    DebugLog::Write("AddPed: Rate-limited gang -> downgrading to civ (terr=%s)", t->id.c_str());
-                }
-
-                // Density check: don't overpopulate -> downgrade to civ if skipped
-                if (shouldOverride || shouldDowngradeToCiv) {
+            // Density check: don't overpopulate ambient owner gang around the spawn point.
+            if ((shouldOverride || shouldDowngradeToCiv) && !hasVehicleContext) {
                     CEntity* nearby[32]{};
                     short numNearby = 0;
 
@@ -218,7 +212,7 @@ CPed* __cdecl PopulationAddPedHook::AddPedHook(ePedType pedType, unsigned int mo
                     if (gangCount >= MAX_GANG_IN_AREA) {
                         g_PopAddPed_SkippedDueToDensity++;
                         shouldOverride = false;
-                        shouldDowngradeToCiv = true;  // NEW
+                        shouldDowngradeToCiv = !wasCivilian;  // only downgrade gang spawns
                         DebugLog::Write("AddPed: Density skip -> downgrading to civ (%d/%d gangs in %.1fm, terr=%s)",
                             gangCount, MAX_GANG_IN_AREA, DENSITY_CHECK_RADIUS, t->id.c_str());
                     }
@@ -242,16 +236,16 @@ CPed* __cdecl PopulationAddPedHook::AddPedHook(ePedType pedType, unsigned int mo
                             if (now >= s_nextLogMs) {
                                 s_nextLogMs = now + 1200;
                                 DebugLog::Write(
-                                    "AddPed REWRITE: terr=%s owner=%d pos(%.1f,%.1f,%.1f) -> type=%d model=%u (civ=%d)",
-                                    t->id.c_str(), ownerGang, coors.x, coors.y, coors.z,
-                                    (int)pedType, modelIndexOrCopType, (int)wasCivilian
+                                    "AddPed REWRITE: terr=%s owner=%d pos(%.1f,%.1f,%.1f) -> type=%d model=%u (civ=%d vehCtx=%d)",
+                                    (t ? t->id.c_str() : "<vehctx>"), ownerGang, coors.x, coors.y, coors.z,
+                                    (int)pedType, modelIndexOrCopType, (int)wasCivilian, (int)hasVehicleContext
                                 );
                             }
                         }
                     }
                 }
-                // NEW: Downgrade wrong gang to random civ
-                else if (shouldDowngradeToCiv && (IsGangPedType(pedType) || IsGangModelIndex(modelIndexOrCopType))) {
+                // Downgrade wrong gang to random civ (ambient only, not vehicle contexts)
+                else if (!hasVehicleContext && shouldDowngradeToCiv && (IsGangPedType(pedType) || IsGangModelIndex(modelIndexOrCopType))) {
                     const int desiredCivModel = GetRandomCivModel();
 
                     // Only downgrade if the model is confirmed loaded

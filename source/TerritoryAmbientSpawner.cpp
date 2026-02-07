@@ -27,27 +27,27 @@ namespace {
 static bool  s_enabled = true;
 
 // Density check radius around player/territory focus
-static float s_checkRadius = 85.0f;
+static float s_checkRadius = 75.0f;
 
 // How many owner-gang peds we want ambiently around (soft target)
-static int   s_targetGangPeds = 4;
+static int   s_targetGangPeds = 2;
 
 // Hard cap (never exceed this many owner-gang peds within radius)
-static int   s_hardCapGangPeds = 7;
+static int   s_hardCapGangPeds = 4;
 
 // Spawn distance band from player (avoid popping on top of player)
 static float s_spawnMinDist = 25.0f;
-static float s_spawnMaxDist = 60.0f;
+static float s_spawnMaxDist = 55.0f;
 
 // Attempts per tick to find a valid spawn spot
 static int   s_spawnAttempts = 10;
 
 // Rate limiting
-static unsigned int s_globalCooldownMs = 1200;     // at most 1 spawn per ~1.2s overall
-static unsigned int s_perTerritoryCooldownMs = 3000; // at most 1 spawn per territory per ~3s
+static unsigned int s_globalCooldownMs = 2200;     // at most 1 spawn per ~2.2s overall
+static unsigned int s_perTerritoryCooldownMs = 5200; // at most 1 spawn per territory per ~5.2s
 
 // Extra throttle to avoid runaway in weird scenarios
-static unsigned int s_noSpawnBackoffMs = 900; // if we decide not to spawn, wait a bit
+static unsigned int s_noSpawnBackoffMs = 1300; // if we decide not to spawn, wait a bit
 
 // State
 static unsigned int s_nextGlobalActionMs = 0;
@@ -107,7 +107,7 @@ static bool ClampIntoTerritory(const Territory* t, float& x, float& y) {
     return true;
 }
 
-// Very lightweight ìfind a ground-ish spotî without overengineering.
+// Very lightweight ‚Äúfind a ground-ish spot‚Äù without overengineering.
 // GTA III is forgiving; we just keep it within territory + distance band.
 // If you later want *path node* correctness, we can reuse your WaveManager logic.
 static bool FindSpawnPos(const Territory* t, const CVector& playerPos, CVector& out) {
@@ -120,7 +120,7 @@ static bool FindSpawnPos(const Territory* t, const CVector& playerPos, CVector& 
         float x = playerPos.x + std::cos(ang) * dist;
         float y = playerPos.y + std::sin(ang) * dist;
 
-        // Keep inside territory to avoid ìleakingî
+        // Keep inside territory to avoid ‚Äúleaking‚Äù
         ClampIntoTerritory(t, x, y);
 
         // Basic Z: start near player Z; GTA often corrects this on placement anyway
@@ -139,12 +139,12 @@ static inline bool EnsureModelLoaded(int modelId) {
     // Must exist in model info table
     if (!CModelInfo::GetModelInfo(modelId)) return false;
 
-    // Ask streaming to ensure itís loaded; this is compatible with GTA III plugin-sdk
+    // Ask streaming to ensure it‚Äôs loaded; this is compatible with GTA III plugin-sdk
     // across variants (no HasModelLoaded / no RW pointer assumptions).
     CStreaming::RequestModel(modelId, GAME_REQUIRED | KEEP_IN_MEMORY);
     CStreaming::LoadAllRequestedModels(false);
 
-    // We canít reliably query ìloadedî across SDK variants; assume the load call did its job.
+    // We can‚Äôt reliably query ‚Äúloaded‚Äù across SDK variants; assume the load call did its job.
     return true;
 }
 
@@ -174,7 +174,7 @@ void TerritoryAmbientSpawner::Update() {
     if (now < s_nextTickMs) return;
     s_nextTickMs = now + 250; // light polling, cheap
 
-    // Donít seed while war active ó war system controls density & pacing
+    // Don‚Äôt seed while war active ‚Äî war system controls density & pacing
     if (WaveManager::IsWarActive()) return;
 
     if (!TerritorySystem::HasRealTerritories()) return;
@@ -218,7 +218,7 @@ void TerritoryAmbientSpawner::Update() {
     }
 
     if (nearby >= s_targetGangPeds) {
-        // Weíre ìgood enoughî
+        // We‚Äôre ‚Äúgood enough‚Äù
         s_nextGlobalActionMs = now + s_noSpawnBackoffMs;
         s_nextTerritoryActionMs[terrIndex] = now + s_noSpawnBackoffMs;
         return;
@@ -234,7 +234,7 @@ void TerritoryAmbientSpawner::Update() {
     }
 
     if (!EnsureModelLoaded(modelId)) {
-        // Donít block the frame; just try next time
+        // Don‚Äôt block the frame; just try next time
         s_nextGlobalActionMs = now + 600;
         s_nextTerritoryActionMs[terrIndex] = now + 600;
         return;
@@ -249,7 +249,7 @@ void TerritoryAmbientSpawner::Update() {
 
     CPed* p = CPopulation::AddPed(ownerType, (unsigned)modelId, spawnPos);
     if (p) {
-        // Mild nudge: make sure they donít immediately despawn as ìmissionî
+        // Mild nudge: make sure they don‚Äôt immediately despawn as ‚Äúmission‚Äù
         // Leave createdBy as default so the engine can cull naturally.
 
         static unsigned int s_nextLogMs = 0;

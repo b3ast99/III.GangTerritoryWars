@@ -92,6 +92,14 @@ namespace {
         return true;
     }
 
+
+static inline float Dist2(const CVector& a, const CVector& b) {
+    const float dx = a.x - b.x;
+    const float dy = a.y - b.y;
+    const float dz = a.z - b.z;
+    return dx * dx + dy * dy + dz * dz;
+}
+
 } // namespace
 
 // ------------------------------------------------------------
@@ -111,6 +119,31 @@ void GangVehicleModelHook::PushContext(int ownerGang, int vehicleModel, const CV
     c.remaining = 5;
 
     s_ctxWrite = (s_ctxWrite + 1) % kCtxCap;
+}
+
+
+
+bool GangVehicleModelHook::TryConsumeOwnerGangForSpawn(const CVector& pedSpawnPos, int& outOwnerGang) {
+    const unsigned int now = CTimer::m_snTimeInMilliseconds;
+    const float matchRadius2 = 30.0f * 30.0f;
+
+    for (int i = 0; i < kCtxCap; ++i) {
+        SpawnContext& c = s_ctx[i];
+        if (c.remaining <= 0) continue;
+        if (c.expiresMs < now) continue;
+        if (c.ownerGang < (int)PEDTYPE_GANG1 || c.ownerGang > (int)PEDTYPE_GANG3) continue;
+
+        if (Dist2(c.pos, pedSpawnPos) > matchRadius2) continue;
+
+        outOwnerGang = c.ownerGang;
+        c.remaining--;
+        if (c.remaining <= 0) {
+            c.expiresMs = 0;
+        }
+        return true;
+    }
+
+    return false;
 }
 
 // ------------------------------------------------------------

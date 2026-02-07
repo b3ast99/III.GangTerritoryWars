@@ -34,6 +34,9 @@ public:
     // Push a new context (called by ChooseModel hook)
     static void PushContext(int ownerGang, int vehicleModel, const CVector& pos, unsigned int nowMs);
 
+    // Consume a pending vehicle spawn context for AddPed occupant rewrites.
+    static bool TryConsumeOwnerGangForSpawn(const CVector& pedSpawnPos, int& outOwnerGang);
+
 private:
     static int __cdecl Hook(CZoneInfo* zoneInfo, CVector* pos, int* outVehicleClass);
 

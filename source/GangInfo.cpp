@@ -5,6 +5,7 @@
 #include "CModelInfo.h"
 #include "CBaseModelInfo.h"
 #include "CStreaming.h"
+#include "eVehicleModel.h"
 
 #include "DebugLog.h"
 
@@ -58,7 +59,7 @@ void GangManager::Initialize()
     s_gangs[0].defaultWeapon = WEAPONTYPE_COLT45;
     s_gangs[0].blipColor = BLIP_COLOUR_RED;
     SetFallbackModels(s_gangs[0].modelIds, { 10, 11 });
-    SetFallbackModels(s_gangs[0].vehicleModelIds, { 130, 131 });
+    SetFallbackModels(s_gangs[0].vehicleModelIds, { MODEL_MAFIA });
 
     // Triads
     s_gangs[1].gangType = PEDTYPE_GANG2;
@@ -66,7 +67,7 @@ void GangManager::Initialize()
     s_gangs[1].defaultWeapon = WEAPONTYPE_UZI;
     s_gangs[1].blipColor = BLIP_COLOUR_GREEN;
     SetFallbackModels(s_gangs[1].modelIds, { 12, 13 });
-    SetFallbackModels(s_gangs[1].vehicleModelIds, { 132, 133 });
+    SetFallbackModels(s_gangs[1].vehicleModelIds, { MODEL_YAKUZA });
 
     // Diablos
     s_gangs[2].gangType = PEDTYPE_GANG3;
@@ -74,7 +75,7 @@ void GangManager::Initialize()
     s_gangs[2].defaultWeapon = WEAPONTYPE_UZI;
     s_gangs[2].blipColor = BLIP_COLOUR_YELLOW;
     SetFallbackModels(s_gangs[2].modelIds, { 14, 15 });
-    SetFallbackModels(s_gangs[2].vehicleModelIds, { 134, 135 });
+    SetFallbackModels(s_gangs[2].vehicleModelIds, { MODEL_DIABLOS });
 
     // Try once immediately (may fail early; that’s fine)
     TryLateResolveModels();

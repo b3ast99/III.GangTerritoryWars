@@ -109,13 +109,19 @@ public:
             if (!s_modelsPreloaded) {
                 DebugLog::Write("Starting one-time model preload (first tick)...");
 
-                // Gang models
+                // Gang ped + vehicle models
                 for (int i = 0; i < 3; ++i) {
-                    const GangInfo& gang = GangManager::s_gangs[i];  // Now accessible via public or accessor
+                    const GangInfo& gang = GangManager::s_gangs[i];
                     for (int modelId : gang.modelIds) {
                         if (modelId >= 0 && CModelInfo::GetModelInfo(modelId)) {
                             CStreaming::RequestModel(modelId, GAME_REQUIRED | KEEP_IN_MEMORY);
-                            DebugLog::Write("Preloaded gang model: %d (gang %d)", modelId, i);
+                            DebugLog::Write("Preloaded gang ped model: %d (gang %d)", modelId, i);
+                        }
+                    }
+                    for (int vehicleModelId : gang.vehicleModelIds) {
+                        if (vehicleModelId >= 0 && CModelInfo::GetModelInfo(vehicleModelId)) {
+                            CStreaming::RequestModel(vehicleModelId, GAME_REQUIRED | KEEP_IN_MEMORY);
+                            DebugLog::Write("Preloaded gang vehicle model: %d (gang %d)", vehicleModelId, i);
                         }
                     }
                 }
