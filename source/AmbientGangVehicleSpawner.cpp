@@ -7,7 +7,6 @@
 #include "CVehicle.h"
 #include "CPools.h"
 #include "eScriptCommands.h"
-#include "scripting.h"
 
 #include "TerritorySystem.h"
 #include "GangInfo.h"
@@ -86,13 +85,13 @@ namespace {
         }
 
         int newHandle = -1;
-        plugin::scripting::CallCommandById(static_cast<unsigned short>(eScriptCommands::COMMAND_CREATE_CAR), desiredModel, pos.x, pos.y, pos.z, &newHandle);
+        Command<COMMAND_CREATE_CAR>(desiredModel, pos.x, pos.y, pos.z, &newHandle);
         if (newHandle < 0) {
             return false;
         }
 
-        plugin::scripting::CallCommandById(static_cast<unsigned short>(eScriptCommands::COMMAND_SET_CAR_HEADING), newHandle, heading);
-        plugin::scripting::CallCommandById(static_cast<unsigned short>(eScriptCommands::COMMAND_DELETE_CAR), oldHandle);
+        Command<COMMAND_SET_CAR_HEADING>(newHandle, heading);
+        Command<COMMAND_DELETE_CAR>(oldHandle);
 
         DebugLog::Write("AmbientVehicle REWRITE: terr=%s owner=%d oldModel=%d newModel=%d at %.1f,%.1f,%.1f",
             territory.id.c_str(), ownerGang, vehicle->m_nModelIndex, desiredModel, pos.x, pos.y, pos.z);
@@ -183,13 +182,13 @@ namespace {
         }
 
         int vehicleHandle = -1;
-        plugin::scripting::CallCommandById(static_cast<unsigned short>(eScriptCommands::COMMAND_CREATE_CAR), vehicleModel, spawnPos.x, spawnPos.y, spawnPos.z, &vehicleHandle);
+        Command<COMMAND_CREATE_CAR>(vehicleModel, spawnPos.x, spawnPos.y, spawnPos.z, &vehicleHandle);
         if (vehicleHandle < 0) {
             return false;
         }
 
         const float heading = plugin::RandomNumberInRange(0.0f, 359.0f);
-        plugin::scripting::CallCommandById(static_cast<unsigned short>(eScriptCommands::COMMAND_SET_CAR_HEADING), vehicleHandle, heading);
+        Command<COMMAND_SET_CAR_HEADING>(vehicleHandle, heading);
 
         DebugLog::Write("AmbientVehicle: spawned gang vehicle terr=%s gang=%d model=%d at %.1f,%.1f,%.1f",
             territory.id.c_str(), ownerGang, vehicleModel, spawnPos.x, spawnPos.y, spawnPos.z);
