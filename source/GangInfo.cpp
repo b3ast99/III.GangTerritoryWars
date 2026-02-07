@@ -58,6 +58,7 @@ void GangManager::Initialize()
     s_gangs[0].defaultWeapon = WEAPONTYPE_COLT45;
     s_gangs[0].blipColor = BLIP_COLOUR_RED;
     SetFallbackModels(s_gangs[0].modelIds, { 10, 11 });
+    SetFallbackModels(s_gangs[0].vehicleModelIds, { 130, 131 });
 
     // Triads
     s_gangs[1].gangType = PEDTYPE_GANG2;
@@ -65,6 +66,7 @@ void GangManager::Initialize()
     s_gangs[1].defaultWeapon = WEAPONTYPE_UZI;
     s_gangs[1].blipColor = BLIP_COLOUR_GREEN;
     SetFallbackModels(s_gangs[1].modelIds, { 12, 13 });
+    SetFallbackModels(s_gangs[1].vehicleModelIds, { 132, 133 });
 
     // Diablos
     s_gangs[2].gangType = PEDTYPE_GANG3;
@@ -72,6 +74,7 @@ void GangManager::Initialize()
     s_gangs[2].defaultWeapon = WEAPONTYPE_UZI;
     s_gangs[2].blipColor = BLIP_COLOUR_YELLOW;
     SetFallbackModels(s_gangs[2].modelIds, { 14, 15 });
+    SetFallbackModels(s_gangs[2].vehicleModelIds, { 134, 135 });
 
     // Try once immediately (may fail early; that’s fine)
     TryLateResolveModels();
@@ -144,6 +147,31 @@ int GangManager::GetRandomModelId(ePedType gangType)
         return -1;
 
     return info->modelIds[std::rand() % info->modelIds.size()];
+}
+
+
+int GangManager::GetRandomGangVehicle(ePedType gangType)
+{
+    const GangInfo* info = GetGangInfo(gangType);
+    if (!info || info->vehicleModelIds.empty())
+        return -1;
+
+    return info->vehicleModelIds[std::rand() % info->vehicleModelIds.size()];
+}
+
+bool GangManager::IsGangVehicleModel(int modelId)
+{
+    if (modelId < 0) return false;
+
+    for (const auto& g : s_gangs) {
+        for (int mid : g.vehicleModelIds) {
+            if (mid == modelId) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 const char* GangManager::GetGangName(ePedType gangType)

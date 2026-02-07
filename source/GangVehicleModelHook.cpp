@@ -31,14 +31,7 @@ namespace {
     }
 
     static bool IsAnyGangVehicleModel(int modelId) {
-        if (modelId < 0) return false;
-        for (int gi = 0; gi < 3; ++gi) {
-            const GangInfo& g = GangManager::s_gangs[gi];
-            for (int mid : g.vehicleModelIds) {
-                if (mid >= 0 && mid == modelId) return true;
-            }
-        }
-        return false;
+        return GangManager::IsGangVehicleModel(modelId);
     }
 
     static bool BytesMatch(const void* addr, const uint8_t* expected, size_t n) {

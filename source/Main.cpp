@@ -14,6 +14,8 @@
 #include "DirectDamageTracker.h"
 #include "TerritoryPersistence.h"
 #include "PopulationAddPedHook.h"
+#include "GangVehicleModelHook.h"
+#include "TerritoryAmbientSpawner.h"
 #include "CStreaming.h"
 
 #include <windows.h>
@@ -68,6 +70,8 @@ public:
             WarSystem::Init();
 
             PopulationAddPedHook::Install();
+            GangVehicleModelHook::Install();
+            TerritoryAmbientSpawner::Init();
 
             DirectDamageTracker::Initialize();
             PedDeathTracker::Initialize();
@@ -88,6 +92,7 @@ public:
             DebugLog::Write("Plugin shutdown triggered via shutdownRwEvent");
             g_isTearingDown = true;
 
+            TerritoryAmbientSpawner::Shutdown();
             TerritoryPersistence::Shutdown();
             TerritorySystem::Shutdown();
             PedDeathTracker::Shutdown();
@@ -133,6 +138,7 @@ public:
 
             GangManager::TryLateResolveModels();
             PopulationAddPedHook::DebugTick();
+            TerritoryAmbientSpawner::Process();
             TerritorySystem::Process();
             TerritoryPersistence::Process();
             WarSystem::Process();

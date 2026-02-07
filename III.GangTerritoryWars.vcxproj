@@ -133,6 +133,7 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     <ClCompile Include="source\DamageHook.cpp" />
     <ClCompile Include="source\DebugLog.cpp" />
     <ClCompile Include="source\DirectDamageTracker.cpp" />
+    <ClCompile Include="source\GangVehicleModelHook.cpp" />
     <ClCompile Include="source\GangInfo.cpp" />
     <ClCompile Include="source\Geometry.cpp" />
     <ClCompile Include="source\HookUtil.cpp" />
@@ -140,6 +141,7 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     <ClCompile Include="source\PedDeathTracker.cpp" />
     <ClCompile Include="source\PopulationAddPedHook.cpp" />
     <ClCompile Include="source\TerritoryPersistence.cpp" />
+    <ClCompile Include="source\TerritoryAmbientSpawner.cpp" />
     <ClCompile Include="source\TerritoryRadarRenderer.cpp" />
     <ClCompile Include="source\TerritorySystem.cpp" />
     <ClCompile Include="source\WarSystem.cpp" />
@@ -155,6 +157,7 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     <ClInclude Include="source\DamageHook.h" />
     <ClInclude Include="source\DebugLog.h" />
     <ClInclude Include="source\DirectDamageTracker.h" />
+    <ClInclude Include="source\GangVehicleModelHook.h" />
     <ClInclude Include="source\GangInfo.h" />
     <ClInclude Include="source\Geometry.h" />
     <ClInclude Include="source\HookUtil.h" />
@@ -162,6 +165,7 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     <ClInclude Include="source\PedDeathTracker.h" />
     <ClInclude Include="source\PopulationAddPedHook.h" />
     <ClInclude Include="source\TerritoryPersistence.h" />
+    <ClInclude Include="source\TerritoryAmbientSpawner.h" />
     <ClInclude Include="source\TerritoryRadarRenderer.h" />
     <ClInclude Include="source\TerritorySystem.h" />
     <ClInclude Include="source\WarSystem.h" />

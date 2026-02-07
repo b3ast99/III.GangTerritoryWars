@@ -359,7 +359,6 @@ void PopulationAddPedHook::DebugTick()
 {
     if (!s_installed) return;
 
-    TryAmbientInjectGangPed();
 
     static unsigned int nextMs = 0;
     const unsigned int now = CTimer::m_snTimeInMilliseconds;
