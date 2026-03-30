@@ -12,6 +12,7 @@
 #include "CStreaming.h"
 #include "CModelInfo.h"
 #include "CPopulation.h"
+#include "IniConfig.h"
 
 #include <Windows.h>
 #include <cstdint>
@@ -41,16 +42,17 @@ uint32_t PopulationAddPedHook::s_hookedAddr = 0;
 PopulationAddPedHook::AddPed_t PopulationAddPedHook::s_original = nullptr;
 
 // ------------------------------------------------------------
-// Configuration constants (tune these!)
+// Configuration — populated from INI at Install() time
 // ------------------------------------------------------------
-static constexpr float REWRITE_PROB_CIV = 0.00f;  // disabled: keep ambient pressure low
-static constexpr float DENSITY_CHECK_RADIUS = 40.0f;  // meters
-static constexpr int   MAX_GANG_IN_AREA = 3;     // don't spawn more if already this many owner gang nearby
+static float        REWRITE_PROB_CIV         = 0.00f;  // [Spawning] CivReplaceProbability
+static float        DENSITY_CHECK_RADIUS      = 40.0f;  // [Spawning] DensityCheckRadius
+static int          MAX_GANG_IN_AREA          = 3;      // [Spawning] MaxGangInArea
+static float        VEHICLE_OCCUPANT_SCAN_R   = 8.0f;   // [Spawning] VehicleOccupantScanRadius
 
-static constexpr unsigned int AMBIENT_INJECT_INTERVAL_MS = 5000;
-static constexpr float AMBIENT_INJECT_RADIUS_MIN = 20.0f;
-static constexpr float AMBIENT_INJECT_RADIUS_MAX = 40.0f;
-static constexpr float AMBIENT_INJECT_MAX_PLAYER_DIST = 120.0f;
+static unsigned int AMBIENT_INJECT_INTERVAL_MS    = 5000;
+static float        AMBIENT_INJECT_RADIUS_MIN      = 20.0f;
+static float        AMBIENT_INJECT_RADIUS_MAX      = 40.0f;
+static float        AMBIENT_INJECT_MAX_PLAYER_DIST = 120.0f;
 
 static bool s_bypassRewriteForAmbientInject = false;
 
@@ -123,7 +125,21 @@ void PopulationAddPedHook::Install()
     }
     else {
         DebugLog::Write("FAILED: Could not install PopulationAddPedHook");
+        return;
     }
+
+    auto& ini = IniConfig::Instance();
+    ini.Load("III.GangTerritoryWars.ini");
+    REWRITE_PROB_CIV             = ini.GetFloat("Spawning", "CivReplaceProbability",  REWRITE_PROB_CIV);
+    DENSITY_CHECK_RADIUS         = ini.GetFloat("Spawning", "GangDensityRadius",       DENSITY_CHECK_RADIUS);
+    MAX_GANG_IN_AREA             = ini.GetInt  ("Spawning", "MaxGangInArea",            MAX_GANG_IN_AREA);
+    VEHICLE_OCCUPANT_SCAN_R      = ini.GetFloat("Spawning", "VehicleOccupantRadius",   VEHICLE_OCCUPANT_SCAN_R);
+    AMBIENT_INJECT_INTERVAL_MS   = (unsigned int)ini.GetInt("Spawning", "AmbientIntervalMs",   (int)AMBIENT_INJECT_INTERVAL_MS);
+    AMBIENT_INJECT_RADIUS_MIN    = ini.GetFloat("Spawning", "AmbientRadiusMin",        AMBIENT_INJECT_RADIUS_MIN);
+    AMBIENT_INJECT_RADIUS_MAX    = ini.GetFloat("Spawning", "AmbientRadiusMax",        AMBIENT_INJECT_RADIUS_MAX);
+    AMBIENT_INJECT_MAX_PLAYER_DIST = ini.GetFloat("Spawning", "AmbientMaxPlayerDist", AMBIENT_INJECT_MAX_PLAYER_DIST);
+    DebugLog::Write("PopulationAddPedHook config: densityR=%.1f maxGang=%d vehScanR=%.1f civProb=%.2f",
+        DENSITY_CHECK_RADIUS, MAX_GANG_IN_AREA, VEHICLE_OCCUPANT_SCAN_R, REWRITE_PROB_CIV);
 }
 
 bool PopulationAddPedHook::TryInstallAtAddress(uint32_t addr)
@@ -179,7 +195,7 @@ CPed* __cdecl PopulationAddPedHook::AddPedHook(ePedType pedType, unsigned int mo
         if (IsGangPedType(pedType) || IsGangModelIndex(modelIndexOrCopType)) {
             CEntity* nearbyEnts[8]{};
             short numNearby = 0;
-            CWorld::FindObjectsInRange(coors, 8.0f, true, &numNearby, 8, nearbyEnts,
+            CWorld::FindObjectsInRange(coors, VEHICLE_OCCUPANT_SCAN_R, true, &numNearby, 8, nearbyEnts,
                                        false, true, false, false, false);
             for (short vi = 0; vi < numNearby; ++vi) {
                 CEntity* ent = nearbyEnts[vi];

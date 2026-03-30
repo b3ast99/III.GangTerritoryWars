@@ -1,6 +1,7 @@
 #include "TerritoryAmbientSpawner.h"
 
 #include "DebugLog.h"
+#include "IniConfig.h"
 #include "TerritorySystem.h"
 #include "GangInfo.h"
 #include "WaveManager.h"
@@ -156,7 +157,19 @@ void TerritoryAmbientSpawner::Init() {
     s_nextGlobalActionMs = 0;
     s_nextTickMs = 0;
     s_nextTerritoryActionMs.clear();
-    DebugLog::Write("TerritoryAmbientSpawner initialized");
+
+    auto& ini = IniConfig::Instance();
+    ini.Load("III.GangTerritoryWars.ini");
+    s_checkRadius          = ini.GetFloat("AmbientSpawning", "CheckRadius",            s_checkRadius);
+    s_targetGangPeds       = ini.GetInt  ("AmbientSpawning", "TargetGangPeds",          s_targetGangPeds);
+    s_hardCapGangPeds      = ini.GetInt  ("AmbientSpawning", "HardCapGangPeds",         s_hardCapGangPeds);
+    s_spawnMinDist         = ini.GetFloat("AmbientSpawning", "SpawnMinDist",            s_spawnMinDist);
+    s_spawnMaxDist         = ini.GetFloat("AmbientSpawning", "SpawnMaxDist",            s_spawnMaxDist);
+    s_globalCooldownMs     = (unsigned int)ini.GetInt("AmbientSpawning", "GlobalCooldownMs",      (int)s_globalCooldownMs);
+    s_perTerritoryCooldownMs = (unsigned int)ini.GetInt("AmbientSpawning", "PerTerritoryCooldownMs", (int)s_perTerritoryCooldownMs);
+
+    DebugLog::Write("TerritoryAmbientSpawner initialized (checkR=%.1f cap=%d spawnDist=%.1f-%.1f cooldown=%ums)",
+        s_checkRadius, s_hardCapGangPeds, s_spawnMinDist, s_spawnMaxDist, s_globalCooldownMs);
 }
 
 void TerritoryAmbientSpawner::Shutdown() {
