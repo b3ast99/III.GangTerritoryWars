@@ -87,11 +87,9 @@
     </Link>
     <PostBuildEvent>
       <Command>
-if defined GTA_III_DIR ( 
+if defined GTA_III_DIR (
 
-taskkill /IM gta3.exe /F /FI "STATUS eq RUNNING" 
-
-xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts" 
+taskkill /IM gta3.exe /F /FI "STATUS eq RUNNING"
 
 )</Command>
     </PostBuildEvent>
@@ -120,11 +118,9 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     </Link>
     <PostBuildEvent>
       <Command>
-if defined GTA_III_DIR ( 
+if defined GTA_III_DIR (
 
-taskkill /IM gta3.exe /F /FI "STATUS eq RUNNING" 
-
-xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts" 
+taskkill /IM gta3.exe /F /FI "STATUS eq RUNNING"
 
 )</Command>
     </PostBuildEvent>
@@ -133,12 +129,15 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     <ClCompile Include="source\DamageHook.cpp" />
     <ClCompile Include="source\DebugLog.cpp" />
     <ClCompile Include="source\DirectDamageTracker.cpp" />
+    <ClCompile Include="source\GangVehicleModelHook.cpp" />
     <ClCompile Include="source\GangInfo.cpp" />
     <ClCompile Include="source\Geometry.cpp" />
     <ClCompile Include="source\HookUtil.cpp" />
     <ClCompile Include="source\Main.cpp" />
     <ClCompile Include="source\PedDeathTracker.cpp" />
+    <ClCompile Include="source\PopulationAddPedHook.cpp" />
     <ClCompile Include="source\TerritoryPersistence.cpp" />
+    <ClCompile Include="source\TerritoryAmbientSpawner.cpp" />
     <ClCompile Include="source\TerritoryRadarRenderer.cpp" />
     <ClCompile Include="source\TerritorySystem.cpp" />
     <ClCompile Include="source\WarSystem.cpp" />
@@ -154,12 +153,15 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     <ClInclude Include="source\DamageHook.h" />
     <ClInclude Include="source\DebugLog.h" />
     <ClInclude Include="source\DirectDamageTracker.h" />
+    <ClInclude Include="source\GangVehicleModelHook.h" />
     <ClInclude Include="source\GangInfo.h" />
     <ClInclude Include="source\Geometry.h" />
     <ClInclude Include="source\HookUtil.h" />
     <ClInclude Include="source\IniConfig.h" />
     <ClInclude Include="source\PedDeathTracker.h" />
+    <ClInclude Include="source\PopulationAddPedHook.h" />
     <ClInclude Include="source\TerritoryPersistence.h" />
+    <ClInclude Include="source\TerritoryAmbientSpawner.h" />
     <ClInclude Include="source\TerritoryRadarRenderer.h" />
     <ClInclude Include="source\TerritorySystem.h" />
     <ClInclude Include="source\WarSystem.h" />

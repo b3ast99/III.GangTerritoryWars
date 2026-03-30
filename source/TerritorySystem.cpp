@@ -1,7 +1,9 @@
 #include "TerritorySystem.h"
+#include "NeutralRevertRule.h"
 #include "TerritoryRadarRenderer.h"
 #include "DebugLog.h"
 #include "WaveManager.h"
+#include "IniConfig.h"
 
 #include "CRadar.h"
 #include "CWorld.h"
@@ -102,6 +104,9 @@ static const char* GetConfigPathRelativeToASI()
 // ------------------------------------------------------------
 std::vector<Territory> TerritorySystem::s_territories;
 bool TerritorySystem::s_overlayEnabled = true;
+
+// Default: 3 minutes before a neutral territory auto-reverts to its last owner
+static unsigned int s_neutralRevertMs = 3 * 60 * 1000;
 
 unsigned int TerritorySystem::s_nextReloadPollMs = 0;
 long long TerritorySystem::s_lastConfigStamp = -1;
@@ -385,6 +390,13 @@ void TerritorySystem::Init() {
     s_nextReloadPollMs = 0;
     s_lastReloadFailToastMs = 0;
 
+    // Read neutral revert timer from INI (default 180s = 3 minutes)
+    auto& ini = IniConfig::Instance();
+    ini.Load("III.GangTerritoryWars.ini");
+    const int revertSec = ini.GetInt("Territory", "NeutralRevertSeconds", 180);
+    s_neutralRevertMs = (unsigned int)(revertSec * 1000);
+    DebugLog::Write("TerritorySystem: neutral revert timer = %ds", revertSec);
+
     TryReloadNow(true);
 
     s_editor.enabled = false;
@@ -397,9 +409,26 @@ void TerritorySystem::Shutdown() {
     s_territories.clear();
 }
 
+void TerritorySystem::SetNeutralRevertMs(unsigned int ms) { s_neutralRevertMs = ms; }
+unsigned int TerritorySystem::GetNeutralRevertMs() { return s_neutralRevertMs; }
+
 void TerritorySystem::Update() {
     const unsigned int now = CTimer::m_snTimeInMilliseconds;
     HotReloadTick(now);
+
+    // Auto-revert neutral territories to their last owner after the configured window
+    for (auto& t : s_territories) {
+        if (t.ownerGang == -1 && !t.underAttack &&
+            NeutralRevertDue(t.neutralSinceMs, now, s_neutralRevertMs)) {
+            const int revertTo = NeutralRevertTarget(t.lastOwnerGang, t.defaultOwnerGang);
+            if (revertTo != -1) {
+                DebugLog::Write("TerritorySystem: %s reverts to gang %d after %us neutral",
+                    t.id.c_str(), revertTo, s_neutralRevertMs / 1000);
+                t.ownerGang = revertTo;
+                t.neutralSinceMs = 0;
+            }
+        }
+    }
 }
 
 void TerritorySystem::ToggleOverlay() {
@@ -438,11 +467,21 @@ int TerritorySystem::GetPlayerGang() {
 void TerritorySystem::SetTerritoryOwner(const Territory* t, int newOwnerGang) {
     if (!t) return;
 
+    const unsigned int now = CTimer::m_snTimeInMilliseconds;
+
     for (auto& terr : s_territories) {
         if (terr.id == t->id) {
+            // Track last real owner before going neutral so auto-revert knows who to restore
+            if (newOwnerGang == -1 && terr.ownerGang != -1) {
+                terr.lastOwnerGang = terr.ownerGang;
+                terr.neutralSinceMs = now;
+            } else if (newOwnerGang != -1) {
+                terr.neutralSinceMs = 0; // no longer neutral — clear timer
+            }
             terr.ownerGang = newOwnerGang;
             terr.underAttack = false;
-            DebugLog::Write("TerritorySystem: %s owner=%d (runtime)", t->id.c_str(), newOwnerGang);
+            DebugLog::Write("TerritorySystem: %s owner=%d (runtime, lastOwner=%d)",
+                t->id.c_str(), newOwnerGang, terr.lastOwnerGang);
             break;
         }
     }

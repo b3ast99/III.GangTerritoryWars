@@ -4,6 +4,7 @@
 #include "WaveCombat.h"
 #include "GangInfo.h"
 #include "TerritorySystem.h"
+#include "WaveDeathRule.h"
 #include "DebugLog.h"
 #include "CMessages.h"
 #include "CPickups.h"
@@ -757,15 +758,22 @@ void WaveManager::CheckPlayerDeath() {
 
     // Check health and ped state using m_ePedState
     if (player->m_fHealth <= 0.0f || player->m_ePedState == PEDSTATE_DEAD || player->m_ePedState == PEDSTATE_DIE) {
-        // Player died during war
-        DebugLog::Write("Player died during gang war - territory goes neutral");
+        // Apply SA-accurate death rule:
+        //   Wave 1 death (s_currentWave == 0) → defending gang keeps the territory
+        //   Wave 2+ death (s_currentWave >= 1) → territory goes neutral (-1)
+        const int defendingGang = s_activeTerritory ? s_activeTerritory->ownerGang : -1;
+        const int newOwner = ComputeWaveDeathOwner(s_currentWave, defendingGang);
 
-        // Show message
-        CMessages::AddMessageJumpQ("You died during the gang war!", DEATH_MESSAGE_DISPLAY_MS, 0);
+        if (newOwner == defendingGang) {
+            DebugLog::Write("Player died in wave 1 — defending gang %d holds territory", defendingGang);
+            CMessages::AddMessageJumpQ("You failed to take the territory!", DEATH_MESSAGE_DISPLAY_MS, 0);
+        } else {
+            DebugLog::Write("Player died in wave %d — territory goes neutral", s_currentWave + 1);
+            CMessages::AddMessageJumpQ("You died — the territory is now contested!", DEATH_MESSAGE_DISPLAY_MS, 0);
+        }
 
-        // Set territory to neutral (-1)
         if (s_activeTerritory) {
-            TerritorySystem::SetTerritoryOwner(s_activeTerritory, -1);
+            TerritorySystem::SetTerritoryOwner(s_activeTerritory, newOwner);
             TerritorySystem::SetUnderAttack(s_activeTerritory, false);
         }
 

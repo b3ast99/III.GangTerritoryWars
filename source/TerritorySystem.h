@@ -10,14 +10,17 @@
 struct Territory {
     std::string id;
     float minX, minY, maxX, maxY;
-    int ownerGang;         // runtime owner
+    int ownerGang;         // runtime owner (-1 = neutral)
     int defaultOwnerGang;  // loaded from territories.txt
+    int lastOwnerGang;     // owner before going neutral; used for auto-revert
+    unsigned int neutralSinceMs; // game time when territory went neutral (0 = not neutral)
     bool underAttack;      // runtime
     int defenseLevel;
 
     Territory()
         : minX(0), minY(0), maxX(0), maxY(0),
-        ownerGang(-1), defaultOwnerGang(-1),
+        ownerGang(-1), defaultOwnerGang(-1), lastOwnerGang(-1),
+        neutralSinceMs(0),
         underAttack(false), defenseLevel(1) {}
 
     bool ContainsPoint(const CVector& pos) const {
@@ -69,6 +72,10 @@ public:
     static bool IsOverlayEnabled();
     static const std::vector<Territory>& GetTerritories();
     static void DrawRadarOverlay();
+
+    // Neutral revert timer — how long before a neutral territory auto-restores (ms)
+    static void SetNeutralRevertMs(unsigned int ms);
+    static unsigned int GetNeutralRevertMs();
 
     // Config reload (still reloads territories.txt geometry + defaults)
     static void ForceReloadNow();

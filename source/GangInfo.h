@@ -1,35 +1,34 @@
 #pragma once
-#include "eWeaponType.h"
-#include "PluginBase.h"
-#include "ePedType.h"
 #include <vector>
 #include <string>
+#include "ePedType.h"
+#include "eWeaponType.h"
 
 struct GangInfo {
-    ePedType gangType;
-    const char* displayName;
-    std::vector<int> modelIds;          // Numeric model IDs (e.g., 14, 15 for Diablos)
-    eWeaponType defaultWeapon;          // Default weapon for this gang
-    int blipColor;                      // Blip colour (use values like BLIP_COLOUR_RED, etc.)
+    ePedType gangType{};
+    std::string displayName;
+    std::vector<int> modelIds;
+    std::vector<int> vehicleModelIds;
+    eWeaponType defaultWeapon{};
+    int blipColor{};
 };
 
 class GangManager {
 public:
     static void Initialize();
 
-    // Get gang info by ped type
+    // NEW: call once after a save loads / player exists to retry name-based model resolution
+    static void TryLateResolveModels();
+
     static const GangInfo* GetGangInfo(ePedType gangType);
-
-    // Get gang info by territory owner
-    static const GangInfo* GetGangInfoForTerritory(int territoryOwnerGang);
-
-    // Get random model from gang's model list
     static int GetRandomModelId(ePedType gangType);
-
+    static int GetRandomGangVehicle(ePedType gangType);
+    static bool IsGangModelId(int modelId);
+    static bool IsGangVehicleModel(int modelId);
+    // Returns the PEDTYPE_GANG* for the given vehicle model, or -1 if not a gang vehicle.
+    static int GetGangForVehicleModel(int modelId);
+    static const std::vector<int>& GetAmbientCivilianModelIds();
     static const char* GetGangName(ePedType gangType);
     static int GetGangBlipColor(ePedType gangType);
-
-
-private:
-    static GangInfo s_gangs[3]; // PEDTYPE_GANG1, GANG2, GANG3
+    static GangInfo s_gangs[3];
 };

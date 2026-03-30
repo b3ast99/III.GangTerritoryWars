@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{3A7D4E1F-B2C8-4F90-A1D5-8E0F3C6B2A47}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>GTWTests</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(ProjectDir)bin\Release\</OutDir>
+    <IntDir>$(ProjectDir)obj\Release\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(ProjectDir)bin\Debug\</OutDir>
+    <IntDir>$(ProjectDir)obj\Debug\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <!-- stubs\ must come BEFORE source\ so stub headers shadow game SDK headers -->
+      <AdditionalIncludeDirectories>$(ProjectDir)stubs;$(ProjectDir);$(ProjectDir)..\source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <!-- stubs\ must come BEFORE source\ so stub headers shadow game SDK headers -->
+      <AdditionalIncludeDirectories>$(ProjectDir)stubs;$(ProjectDir);$(ProjectDir)..\source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_DEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <!-- Test entry point and suites -->
+    <ClCompile Include="test_main.cpp" />
+    <ClCompile Include="test_ini_config.cpp" />
+    <ClCompile Include="test_sidecar_format.cpp" />
+    <ClCompile Include="test_war_kill_tracker.cpp" />
+    <ClCompile Include="test_territory_aabb.cpp" />
+    <ClCompile Include="test_save_slot_parser.cpp" />
+    <ClCompile Include="test_wave_death_rule.cpp" />
+    <ClCompile Include="test_kill_credit_rule.cpp" />
+    <ClCompile Include="test_wave_config.cpp" />
+    <ClCompile Include="test_gang_info.cpp" />
+    <ClCompile Include="test_neutral_revert.cpp" />
+    <ClCompile Include="DebugLog_stub.cpp" />
+    <!-- Pure-logic source files under test (no game SDK dependencies) -->
+    <ClCompile Include="..\source\GangInfo.cpp" />
+    <ClCompile Include="..\source\SidecarFormat.cpp" />
+    <ClCompile Include="..\source\WarKillTracker.cpp" />
+    <ClCompile Include="..\source\SaveSlotParser.cpp" />
+    <ClCompile Include="..\source\WaveConfig.cpp" />
+    <!-- Header-only: IniConfig, WaveDeathRule, KillCreditRule included via #include -->
+    <!-- TerritorySystem.h included via stubs for Territory struct only — no .cpp compiled -->
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="TestFramework.h" />
+    <ClInclude Include="stubs\plugin.h" />
+    <ClInclude Include="stubs\CVector.h" />
+    <ClInclude Include="stubs\ePedType.h" />
+    <ClInclude Include="stubs\eVehicleModel.h" />
+    <ClInclude Include="stubs\DebugLog.h" />
+    <ClInclude Include="stubs\CRadar.h" />
+    <ClInclude Include="stubs\CBaseModelInfo.h" />
+    <ClInclude Include="stubs\CModelInfo.h" />
+    <ClInclude Include="stubs\CStreaming.h" />
+    <ClInclude Include="..\source\GangInfo.h" />
+    <ClInclude Include="..\source\SidecarFormat.h" />
+    <ClInclude Include="..\source\WarKillTracker.h" />
+    <ClInclude Include="..\source\IniConfig.h" />
+    <ClInclude Include="..\source\SaveSlotParser.h" />
+    <ClInclude Include="..\source\WaveDeathRule.h" />
+    <ClInclude Include="..\source\WaveConfig.h" />
+    <ClInclude Include="stubs\eWeaponType.h" />
+    <ClInclude Include="..\source\KillCreditRule.h" />
+    <ClInclude Include="..\source\NeutralRevertRule.h" />
+    <ClInclude Include="..\source\TerritorySystem.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

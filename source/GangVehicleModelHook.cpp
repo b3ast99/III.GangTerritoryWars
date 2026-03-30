@@ -1,0 +1,269 @@
+// GangVehicleModelHook.cpp
+#include "GangVehicleModelHook.h"
+
+#include "DebugLog.h"
+#include "IniConfig.h"
+#include "TerritorySystem.h"
+#include "GangInfo.h"
+#include "CTimer.h"
+
+#include <Windows.h>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <cstdio>
+
+// ------------------------------------------------------------
+// Static state (matches GangVehicleModelHook.h)
+// ------------------------------------------------------------
+GangVehicleModelHook::SpawnContext GangVehicleModelHook::s_ctx[GangVehicleModelHook::kCtxCap]{};
+int GangVehicleModelHook::s_ctxWrite = 0;
+
+bool GangVehicleModelHook::s_installed = false;
+bool GangVehicleModelHook::s_enabled = true;
+GangVehicleModelHook::ChooseModel_t GangVehicleModelHook::s_original = nullptr;
+
+// Probability of injecting a gang vehicle when vanilla chose a civilian model in territory.
+// 0.0 = disabled (original behaviour), 0.12 = ~12% of civilian traffic becomes gang vehicles.
+static float s_gangVehicleInjectProb = 0.12f;
+
+// ------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------
+namespace {
+
+    static inline bool IsValidOwnerGang(int ownerGang) {
+        return ownerGang >= (int)PEDTYPE_GANG1 && ownerGang <= (int)PEDTYPE_GANG3;
+    }
+
+    static bool IsAnyGangVehicleModel(int modelId) {
+        return GangManager::IsGangVehicleModel(modelId);
+    }
+
+    static bool BytesMatch(const void* addr, const uint8_t* expected, size_t n) {
+        const uint8_t* p = reinterpret_cast<const uint8_t*>(addr);
+        for (size_t i = 0; i < n; ++i) {
+            if (p[i] != expected[i]) return false;
+        }
+        return true;
+    }
+
+    static void DumpBytes(const char* label, const void* addr, size_t n) {
+        const uint8_t* p = reinterpret_cast<const uint8_t*>(addr);
+        char buf[256]{};
+        char* w = buf;
+        for (size_t i = 0; i < n; ++i) {
+            w += std::snprintf(w, (size_t)(buf + sizeof(buf) - w), "%02X ", p[i]);
+            if (w >= buf + sizeof(buf) - 4) break;
+        }
+        DebugLog::Write("%s @%p : %s", label, addr, buf);
+    }
+
+    static void* MakeTrampolineFixed(void* target, size_t stolenBytes) {
+        uint8_t* src = reinterpret_cast<uint8_t*>(target);
+
+        uint8_t* tramp = (uint8_t*)VirtualAlloc(nullptr, stolenBytes + 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if (!tramp) return nullptr;
+
+        std::memcpy(tramp, src, stolenBytes);
+
+        // jmp back to original after stolen bytes
+        tramp[stolenBytes] = 0xE9;
+        int32_t rel = (int32_t)((src + stolenBytes) - (tramp + stolenBytes + 5));
+        std::memcpy(tramp + stolenBytes + 1, &rel, 4);
+
+        FlushInstructionCache(GetCurrentProcess(), tramp, stolenBytes + 5);
+        return tramp;
+    }
+
+    static bool PatchJmpAndNop(void* src, void* dst, size_t stolenBytes) {
+        if (stolenBytes < 5) return false;
+
+        DWORD oldProtect{};
+        if (!VirtualProtect(src, stolenBytes, PAGE_EXECUTE_READWRITE, &oldProtect))
+            return false;
+
+        uint8_t* p = reinterpret_cast<uint8_t*>(src);
+
+        // JMP rel32
+        p[0] = 0xE9;
+        int32_t rel = (int32_t)((uint8_t*)dst - ((uint8_t*)src + 5));
+        std::memcpy(p + 1, &rel, 4);
+
+        // NOP pad remaining bytes we "stole"
+        for (size_t i = 5; i < stolenBytes; ++i) p[i] = 0x90;
+
+        VirtualProtect(src, stolenBytes, oldProtect, &oldProtect);
+        FlushInstructionCache(GetCurrentProcess(), src, stolenBytes);
+        return true;
+    }
+
+
+static inline float Dist2(const CVector& a, const CVector& b) {
+    const float dx = a.x - b.x;
+    const float dy = a.y - b.y;
+    const float dz = a.z - b.z;
+    return dx * dx + dy * dy + dz * dz;
+}
+
+static inline float Rand01() {
+    return (float)std::rand() / (float)RAND_MAX;
+}
+
+} // namespace
+
+// ------------------------------------------------------------
+// Context push (matches header signature exactly)
+// ------------------------------------------------------------
+void GangVehicleModelHook::PushContext(int ownerGang, int vehicleModel, const CVector& pos, unsigned int nowMs) {
+    SpawnContext& c = s_ctx[s_ctxWrite];
+    c.ownerGang = ownerGang;
+    c.territoryOwner = ownerGang;   // keep explicit, even if redundant
+    c.vehicleModel = vehicleModel;
+    c.pos = pos;
+
+    // GTA III defers occupant AddPed by several frames after ChooseModel.
+    // Log analysis shows gaps of 200-900ms; 800ms covers this while limiting bleed risk.
+    c.expiresMs = nowMs + 800;
+
+    // Driver + 1 passenger.  Most GTA III cars have 2 seats; keeping this low
+    // prevents leftover tokens from being consumed by a different vehicle's occupants.
+    c.remaining = 2;
+
+    s_ctxWrite = (s_ctxWrite + 1) % kCtxCap;
+}
+
+
+
+bool GangVehicleModelHook::TryConsumeOwnerGangForSpawn(const CVector& pedSpawnPos, int& outOwnerGang) {
+    const unsigned int now = CTimer::m_snTimeInMilliseconds;
+    const float matchRadius2 = 30.0f * 30.0f;
+
+    // Iterate LIFO (most recently pushed first) so occupants always bind to the
+    // latest ChooseModel call rather than a stale context from a nearby earlier vehicle.
+    for (int n = 0; n < kCtxCap; ++n) {
+        const int i = (s_ctxWrite - 1 - n + kCtxCap * 2) % kCtxCap;
+        SpawnContext& c = s_ctx[i];
+        if (c.remaining <= 0) continue;
+
+        if (c.ownerGang < (int)PEDTYPE_GANG1 || c.ownerGang > (int)PEDTYPE_GANG3) continue;
+
+        if (c.expiresMs < now) {
+            c.remaining = 0;
+            continue;
+        }
+
+        if (Dist2(c.pos, pedSpawnPos) > matchRadius2) continue;
+
+        outOwnerGang = c.ownerGang;
+        c.remaining--;
+        if (c.remaining <= 0) {
+            c.expiresMs = 0;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+// ------------------------------------------------------------
+// Install hook
+// ------------------------------------------------------------
+void GangVehicleModelHook::Install() {
+    if (s_installed) {
+        DebugLog::Write("GangVehicleModelHook already installed");
+        return;
+    }
+
+    const uint32_t targetAddr = 0x00417EC0; // GTA III 1.0
+    void* target = reinterpret_cast<void*>(targetAddr);
+
+    // Support multiple GTA III executable prologues seen in the wild.
+    // Pattern A: 8B 44 24 04 8B 4C 24 08 (legacy)
+    // Pattern B: 53 55 83 EC 10 8B 6C 24 1C ... (observed in user logs)
+    const uint8_t expectedA[8] = { 0x8B, 0x44, 0x24, 0x04, 0x8B, 0x4C, 0x24, 0x08 };
+    const uint8_t expectedB[9] = { 0x53, 0x55, 0x83, 0xEC, 0x10, 0x8B, 0x6C, 0x24, 0x1C };
+
+    DumpBytes("ChooseModel bytes", target, 16);
+
+    size_t stolen = 0;
+    if (BytesMatch(target, expectedA, 8)) {
+        stolen = 8;
+    }
+    else if (BytesMatch(target, expectedB, 9)) {
+        stolen = 9; // keep instruction boundary for push/push/sub/mov sequence
+    }
+    else {
+        DebugLog::Write("GangVehicleModelHook: unknown bytes at 0x%08X; installing anyway with conservative stolen=9", targetAddr);
+        stolen = 9;
+    }
+
+    void* tramp = MakeTrampolineFixed(target, stolen);
+    if (!tramp) {
+        DebugLog::Write("GangVehicleModelHook: failed to alloc trampoline");
+        return;
+    }
+
+    if (!PatchJmpAndNop(target, (void*)&Hook, stolen)) {
+        DebugLog::Write("GangVehicleModelHook: failed to patch jmp");
+        return;
+    }
+
+    s_original = reinterpret_cast<ChooseModel_t>(tramp);
+    s_installed = true;
+
+    auto& ini = IniConfig::Instance();
+    ini.Load("III.GangTerritoryWars.ini");
+    s_gangVehicleInjectProb = ini.GetFloat("Spawning", "GangVehicleInjectProb", s_gangVehicleInjectProb);
+
+    DebugLog::Write("GangVehicleModelHook installed successfully at 0x%08X (stolen=%u injectProb=%.2f)",
+        targetAddr, (unsigned)stolen, s_gangVehicleInjectProb);
+}
+
+// ------------------------------------------------------------
+// Hook body
+// ------------------------------------------------------------
+int __cdecl GangVehicleModelHook::Hook(CZoneInfo* zoneInfo, CVector* pos, int* outVehicleClass) {
+    if (!s_original) return -1;
+    if (!pos) return s_original(zoneInfo, pos, outVehicleClass);
+
+    const int originalModel = s_original(zoneInfo, pos, outVehicleClass);
+
+    if (!s_enabled) return originalModel;
+    if (!TerritorySystem::HasRealTerritories()) return originalModel;
+
+    const Territory* territory = TerritorySystem::GetTerritoryAtPoint(*pos);
+    if (!territory) return originalModel;
+
+    const int owner = territory->ownerGang;
+    if (!IsValidOwnerGang(owner)) return originalModel;
+
+    const bool isGangVehicle = IsAnyGangVehicleModel(originalModel);
+
+    if (!isGangVehicle) {
+        // Civilian vehicle in gang territory: inject a gang vehicle at low probability.
+        // This surfaces gang vehicles in areas where vanilla never spawns them.
+        if (s_gangVehicleInjectProb <= 0.0f || Rand01() >= s_gangVehicleInjectProb)
+            return originalModel;
+    }
+
+    const int desiredModel = GangManager::GetRandomGangVehicle((ePedType)owner);
+    if (desiredModel < 0) return originalModel;
+
+    const unsigned int now = CTimer::m_snTimeInMilliseconds;
+
+    // Occupant gang is resolved in AddPedHook via nearby-vehicle scan.
+    static unsigned int s_nextLogMs = 0;
+    if (now >= s_nextLogMs) {
+        s_nextLogMs = now + 1200;
+        if (desiredModel != originalModel) {
+            DebugLog::Write(
+                "ChooseModel %s -> terr=%s owner=%d pos(%.1f,%.1f,%.1f) %d->%d",
+                isGangVehicle ? "OVERRIDE" : "INJECT",
+                territory->id.c_str(), owner, pos->x, pos->y, pos->z, originalModel, desiredModel
+            );
+        }
+    }
+
+    return desiredModel;
+}

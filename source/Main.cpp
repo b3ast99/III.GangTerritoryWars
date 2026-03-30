@@ -13,9 +13,16 @@
 #include "DamageHook.h"
 #include "DirectDamageTracker.h"
 #include "TerritoryPersistence.h"
+#include "PopulationAddPedHook.h"
+#include "GangVehicleModelHook.h"
+#include "TerritoryAmbientSpawner.h"
+#include "CStreaming.h"
 
 #include <windows.h>
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <vector>
 
 static bool g_isTearingDown = false;
 using namespace plugin;
@@ -54,15 +61,20 @@ public:
     {
         Events::initRwEvent += [] {
             DebugLog::Initialize("III.GangTerritoryWars.log");
+            // Seed rand once at init
+            std::srand(static_cast<unsigned int>(std::time(nullptr)));
             GangManager::Initialize();
             WaveManager::Initialize();
             TerritorySystem::Init();
             TerritoryPersistence::Init();
             WarSystem::Init();
 
+            PopulationAddPedHook::Install();
+            GangVehicleModelHook::Install();
+            TerritoryAmbientSpawner::Init();
+
             DirectDamageTracker::Initialize();
             PedDeathTracker::Initialize();
-
             DamageHook::Install();
 
             DebugLog::Write("GangTerritoryWars loaded");
@@ -80,6 +92,7 @@ public:
             DebugLog::Write("Plugin shutdown triggered via shutdownRwEvent");
             g_isTearingDown = true;
 
+            TerritoryAmbientSpawner::Shutdown();
             TerritoryPersistence::Shutdown();
             TerritorySystem::Shutdown();
             PedDeathTracker::Shutdown();
@@ -91,6 +104,47 @@ public:
         Events::gameProcessEvent += [] {
             if (g_isTearingDown) return;
 
+            // One-time model preloading on first game tick
+            static bool s_modelsPreloaded = false;
+            if (!s_modelsPreloaded) {
+                DebugLog::Write("Starting one-time model preload (first tick)...");
+
+                // Gang ped + vehicle models
+                for (int i = 0; i < 3; ++i) {
+                    const GangInfo& gang = GangManager::s_gangs[i];
+                    for (int modelId : gang.modelIds) {
+                        if (modelId >= 0 && CModelInfo::GetModelInfo(modelId)) {
+                            CStreaming::RequestModel(modelId, GAME_REQUIRED | KEEP_IN_MEMORY);
+                            DebugLog::Write("Preloaded gang ped model: %d (gang %d)", modelId, i);
+                        }
+                    }
+                    for (int vehicleModelId : gang.vehicleModelIds) {
+                        if (vehicleModelId >= 0 && CModelInfo::GetModelInfo(vehicleModelId)) {
+                            CStreaming::RequestModel(vehicleModelId, GAME_REQUIRED | KEEP_IN_MEMORY);
+                            DebugLog::Write("Preloaded gang vehicle model: %d (gang %d)", vehicleModelId, i);
+                        }
+                    }
+                }
+
+                // Civilian models used by ambient downgrade logic
+                const std::vector<int>& civModels = GangManager::GetAmbientCivilianModelIds();
+
+                for (int mid : civModels) {
+                    if (mid >= 0 && CModelInfo::GetModelInfo(mid)) {
+                        CStreaming::RequestModel(mid, GAME_REQUIRED | KEEP_IN_MEMORY);
+                        DebugLog::Write("Preloaded civ model: %d", mid);
+                    }
+                }
+
+                CStreaming::LoadAllRequestedModels(false);  // Non-blocking
+                DebugLog::Write("Model preload complete (first tick)");
+
+                s_modelsPreloaded = true;
+            }
+
+            GangManager::TryLateResolveModels();
+            PopulationAddPedHook::DebugTick();
+            TerritoryAmbientSpawner::Process();
             TerritorySystem::Process();
             TerritoryPersistence::Process();
             WarSystem::Process();
