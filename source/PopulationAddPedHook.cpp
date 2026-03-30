@@ -159,18 +159,39 @@ CPed* __cdecl PopulationAddPedHook::AddPedHook(ePedType pedType, unsigned int mo
 
     bool shouldOverride = false;
     bool wasCivilian = false;
-    bool shouldDowngradeToCiv = false;  // NEW: for rate/density skips on gangs
+    bool shouldDowngradeToCiv = false;
 
     const Territory* t = nullptr;
     int ownerGang = -1;
-    int contextOwnerGang = -1;
-    const bool hasVehicleContext = GangVehicleModelHook::TryConsumeOwnerGangForSpawn(coors, contextOwnerGang);
+    bool hasVehicleContext = false;
 
     g_PopAddPed_LastOwnerGang = 0xFFFFFFFFu;
 
     if (s_enabled) {
         t = TerritorySystem::GetTerritoryAtPoint(coors);
-        ownerGang = hasVehicleContext ? contextOwnerGang : (t ? t->ownerGang : -1);
+        ownerGang = t ? t->ownerGang : -1;
+
+        // If a gang ped is spawning, check for a nearby gang vehicle (tight radius).
+        // The vehicle will already exist in the world when its driver/passenger is added,
+        // so the ped's spawn position is at or very near the vehicle.  Using the vehicle's
+        // model (rather than a ChooseModel zone-position context) gives the correct gang
+        // even when the spawn point is near a territory border.
+        if (IsGangPedType(pedType) || IsGangModelIndex(modelIndexOrCopType)) {
+            CEntity* nearbyEnts[8]{};
+            short numNearby = 0;
+            CWorld::FindObjectsInRange(coors, 8.0f, true, &numNearby, 8, nearbyEnts,
+                                       false, true, false, false, false);
+            for (short vi = 0; vi < numNearby; ++vi) {
+                CEntity* ent = nearbyEnts[vi];
+                if (!ent || ent->m_nType != ENTITY_TYPE_VEHICLE) continue;
+                const int vehGang = GangManager::GetGangForVehicleModel(ent->m_nModelIndex);
+                if (vehGang >= (int)PEDTYPE_GANG1 && vehGang <= (int)PEDTYPE_GANG9) {
+                    ownerGang = vehGang;
+                    hasVehicleContext = true;
+                    break;
+                }
+            }
+        }
         if (ownerGang >= 0) {
             g_PopAddPed_LastOwnerGang = (uint32_t)ownerGang;
         }

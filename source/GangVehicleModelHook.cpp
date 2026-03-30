@@ -112,11 +112,13 @@ void GangVehicleModelHook::PushContext(int ownerGang, int vehicleModel, const CV
     c.vehicleModel = vehicleModel;
     c.pos = pos;
 
-    // Tight window to reduce “context bleeding” into unrelated AddPed calls
-    c.expiresMs = nowMs + 650;
+    // GTA III defers occupant AddPed by several frames after ChooseModel.
+    // Log analysis shows gaps of 200-900ms; 800ms covers this while limiting bleed risk.
+    c.expiresMs = nowMs + 800;
 
-    // Driver + a few passengers
-    c.remaining = 5;
+    // Driver + 1 passenger.  Most GTA III cars have 2 seats; keeping this low
+    // prevents leftover tokens from being consumed by a different vehicle's occupants.
+    c.remaining = 2;
 
     s_ctxWrite = (s_ctxWrite + 1) % kCtxCap;
 }
@@ -127,11 +129,19 @@ bool GangVehicleModelHook::TryConsumeOwnerGangForSpawn(const CVector& pedSpawnPo
     const unsigned int now = CTimer::m_snTimeInMilliseconds;
     const float matchRadius2 = 30.0f * 30.0f;
 
-    for (int i = 0; i < kCtxCap; ++i) {
+    // Iterate LIFO (most recently pushed first) so occupants always bind to the
+    // latest ChooseModel call rather than a stale context from a nearby earlier vehicle.
+    for (int n = 0; n < kCtxCap; ++n) {
+        const int i = (s_ctxWrite - 1 - n + kCtxCap * 2) % kCtxCap;
         SpawnContext& c = s_ctx[i];
         if (c.remaining <= 0) continue;
-        if (c.expiresMs < now) continue;
+
         if (c.ownerGang < (int)PEDTYPE_GANG1 || c.ownerGang > (int)PEDTYPE_GANG3) continue;
+
+        if (c.expiresMs < now) {
+            c.remaining = 0;
+            continue;
+        }
 
         if (Dist2(c.pos, pedSpawnPos) > matchRadius2) continue;
 
@@ -221,17 +231,14 @@ int __cdecl GangVehicleModelHook::Hook(CZoneInfo* zoneInfo, CVector* pos, int* o
 
     const unsigned int now = CTimer::m_snTimeInMilliseconds;
 
-    // Push occupant context *for this spawn*, keyed to territory owner + final vehicle model.
-    // Even if desired == original, we still want occupants to match the territory owner.
-    PushContext(owner, desiredModel, *pos, now);
-
-    // Throttle logs to avoid spam
+    // Occupant gang is now resolved in AddPedHook via nearby-vehicle scan.
+    // No context push needed here.
     static unsigned int s_nextLogMs = 0;
     if (now >= s_nextLogMs) {
         s_nextLogMs = now + 1200;
         if (desiredModel != originalModel) {
             DebugLog::Write(
-                "ChooseModel OVERRIDE (territory gang) -> terr=%s owner=%d pos(%.1f,%.1f,%.1f) original=%d -> desired=%d",
+                "ChooseModel OVERRIDE -> terr=%s owner=%d pos(%.1f,%.1f,%.1f) %d->%d",
                 territory->id.c_str(), owner, pos->x, pos->y, pos->z, originalModel, desiredModel
             );
         }

@@ -87,11 +87,9 @@
     </Link>
     <PostBuildEvent>
       <Command>
-if defined GTA_III_DIR ( 
+if defined GTA_III_DIR (
 
-taskkill /IM gta3.exe /F /FI "STATUS eq RUNNING" 
-
-xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts" 
+taskkill /IM gta3.exe /F /FI "STATUS eq RUNNING"
 
 )</Command>
     </PostBuildEvent>
@@ -120,11 +118,9 @@ xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts"
     </Link>
     <PostBuildEvent>
       <Command>
-if defined GTA_III_DIR ( 
+if defined GTA_III_DIR (
 
-taskkill /IM gta3.exe /F /FI "STATUS eq RUNNING" 
-
-xcopy /Y "$(TargetPath)" "$(GTA_III_DIR)\scripts" 
+taskkill /IM gta3.exe /F /FI "STATUS eq RUNNING"
 
 )</Command>
     </PostBuildEvent>

@@ -25,6 +25,8 @@ public:
     static int GetRandomGangVehicle(ePedType gangType);
     static bool IsGangModelId(int modelId);
     static bool IsGangVehicleModel(int modelId);
+    // Returns the PEDTYPE_GANG* for the given vehicle model, or -1 if not a gang vehicle.
+    static int GetGangForVehicleModel(int modelId);
     static const std::vector<int>& GetAmbientCivilianModelIds();
     static const char* GetGangName(ePedType gangType);
     static int GetGangBlipColor(ePedType gangType);

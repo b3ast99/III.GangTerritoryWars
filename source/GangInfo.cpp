@@ -175,6 +175,21 @@ bool GangManager::IsGangVehicleModel(int modelId)
     return false;
 }
 
+int GangManager::GetGangForVehicleModel(int modelId)
+{
+    if (modelId < 0) return -1;
+
+    for (const auto& g : s_gangs) {
+        for (int mid : g.vehicleModelIds) {
+            if (mid == modelId) {
+                return (int)g.gangType;
+            }
+        }
+    }
+
+    return -1;
+}
+
 const char* GangManager::GetGangName(ePedType gangType)
 {
     const GangInfo* info = GetGangInfo(gangType);
