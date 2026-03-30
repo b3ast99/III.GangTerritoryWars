@@ -198,22 +198,68 @@ namespace WaveCombat {
         CPlayerPed* player = CWorld::Players[0].m_pPed;
         if (!player) return;
 
-        CVector playerPos = player->GetPosition();
+        const CVector playerPos = player->GetPosition();
+        const unsigned int now = CTimer::m_snTimeInMilliseconds;
+
+        static constexpr float STUCK_MOVE_THRESHOLD = 2.0f;   // units moved
+        static constexpr unsigned int STUCK_TIMEOUT_MS = 3000; // ms before "stuck"
+        static constexpr float FLEE_HEALTH_THRESHOLD = 25.0f;  // % of max health
 
         for (auto& e : s_enemies) {
-            if (IsAlivePed(e.ped)) {
-                float dist = Distance2D(e.ped->GetPosition(), playerPos);
+            if (!IsAlivePed(e.ped)) continue;
 
-                // If enemy is too far away (> 50 units), force them to run toward player
-                if (dist > 50.0f) {
-                    e.ped->SetMoveState(PEDMOVE_RUN);
+            const CVector pedPos = e.ped->GetPosition();
+            const float dist = Distance2D(pedPos, playerPos);
+
+            // --- Health-based flee ---
+            if (e.ped->m_fHealth < FLEE_HEALTH_THRESHOLD && dist < 40.0f) {
+                e.ped->SetObjective(OBJECTIVE_FLEE_CHAR_ON_FOOT_TILL_SAFE, player);
+                e.ped->SetMoveState(PEDMOVE_SPRINT);
+                continue; // don't override flee with approach logic
+            }
+
+            // --- Stuck detection ---
+            const float moved = Distance2D(pedPos, e.lastPos);
+            if (moved > STUCK_MOVE_THRESHOLD) {
+                e.lastPos = pedPos;
+                e.stuckSinceMs = now;
+            } else if (e.stuckSinceMs == 0) {
+                e.stuckSinceMs = now;
+            }
+            const bool stuck = (now - e.stuckSinceMs) > STUCK_TIMEOUT_MS;
+
+            // --- Distance-banded approach logic ---
+            if (dist > 50.0f) {
+                // Far: force run and re-target
+                e.ped->SetMoveState(PEDMOVE_RUN);
+                e.ped->SetObjective(OBJECTIVE_KILL_CHAR_ON_FOOT, player);
+                e.lastPos = pedPos;
+                e.stuckSinceMs = now;
+            } else if (dist > 30.0f) {
+                // Mid-range: nudge toward player; un-stuck if needed
+                if (stuck) {
                     e.ped->SetObjective(OBJECTIVE_KILL_CHAR_ON_FOOT, player);
-                }
-                // If moderately far (30-50 units), walk (since there's no JOG)
-                else if (dist > 30.0f) {
+                    e.ped->SetMoveState(PEDMOVE_RUN);
+                    e.lastPos = pedPos;
+                    e.stuckSinceMs = now;
+                } else {
                     e.ped->SetMoveState(PEDMOVE_WALK);
                 }
+            } else if (dist > 10.0f) {
+                // Close range dead zone: re-assert if idle or stuck
+                if (stuck ||
+                    e.ped->m_ePedState == PEDSTATE_IDLE ||
+                    e.ped->m_ePedState == PEDSTATE_NONE ||
+                    e.ped->m_ePedState == PEDSTATE_WANDER_RANGE ||
+                    e.ped->m_ePedState == PEDSTATE_WANDER_PATH) {
+                    e.ped->SetObjective(OBJECTIVE_KILL_CHAR_ON_FOOT, player);
+                    if (stuck) {
+                        e.lastPos = pedPos;
+                        e.stuckSinceMs = now;
+                    }
+                }
             }
+            // < 10m: let GTA III native combat AI handle it
         }
     }
 

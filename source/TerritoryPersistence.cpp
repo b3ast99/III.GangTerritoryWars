@@ -3,6 +3,7 @@
 #include "TerritorySystem.h"
 #include "TerritoryRadarRenderer.h"
 #include "WaveManager.h"
+#include "WarSystem.h"
 #include "PedDeathTracker.h"
 #include "DebugLog.h"
 
@@ -345,6 +346,7 @@ void TerritoryPersistence::Process() {
 
                 PedDeathTracker::SuppressKillCreditFor(1000);
                 WaveManager::ResetForLoad();
+                WarSystem::Init();
                 TerritorySystem::ClearAllWarsAndTransientState();
                 TerritoryRadarRenderer::ResetTransientState();
             }

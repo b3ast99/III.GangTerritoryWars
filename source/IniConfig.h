@@ -34,6 +34,17 @@ public:
         return "";
     }
 
+    // Parse INI content from a string — used by unit tests and live-reload paths.
+    void LoadFromString(const std::string& content) {
+        std::istringstream stream(content);
+        ParseStream(stream);
+    }
+
+    std::string GetString(const std::string& section, const std::string& key, const std::string& defaultValue) {
+        auto it = data_.find(section + "." + key);
+        return (it != data_.end()) ? it->second : defaultValue;
+    }
+
     void Load(const std::string& filename) {
         // Try to load from module directory first
         std::string modulePath = GetModuleDirectory() + filename;
@@ -45,30 +56,7 @@ public:
             if (!file.is_open()) return;
         }
 
-        std::string line, section;
-        while (std::getline(file, line)) {
-            // Remove whitespace
-            line.erase(0, line.find_first_not_of(" \t\r\n"));
-            line.erase(line.find_last_not_of(" \t\r\n") + 1);
-
-            if (line.empty() || line[0] == ';' || line[0] == '#') continue;
-
-            if (line[0] == '[') {
-                section = line.substr(1, line.find(']') - 1);
-            }
-            else {
-                size_t pos = line.find('=');
-                if (pos != std::string::npos) {
-                    std::string key = line.substr(0, pos);
-                    std::string value = line.substr(pos + 1);
-                    // Trim
-                    key.erase(key.find_last_not_of(" \t") + 1);
-                    value.erase(0, value.find_first_not_of(" \t"));
-
-                    data_[section + "." + key] = value;
-                }
-            }
-        }
+        ParseStream(file);
     }
 
     int GetInt(const std::string& section, const std::string& key, int defaultValue) {
@@ -89,4 +77,32 @@ public:
 
 private:
     std::map<std::string, std::string> data_;
+
+    void ParseStream(std::istream& stream) {
+        std::string line, section;
+        while (std::getline(stream, line)) {
+            line.erase(0, line.find_first_not_of(" \t\r\n"));
+            line.erase(line.find_last_not_of(" \t\r\n") + 1);
+
+            if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+
+            if (line[0] == '[') {
+                section = line.substr(1, line.find(']') - 1);
+            } else {
+                size_t pos = line.find('=');
+                if (pos != std::string::npos) {
+                    std::string key   = line.substr(0, pos);
+                    std::string value = line.substr(pos + 1);
+                    key.erase(key.find_last_not_of(" \t") + 1);
+                    value.erase(0, value.find_first_not_of(" \t"));
+                    // Strip inline comments
+                    size_t cmtPos = value.find_first_of(";#");
+                    if (cmtPos != std::string::npos)
+                        value = value.substr(0, cmtPos);
+                    value.erase(value.find_last_not_of(" \t") + 1);
+                    data_[section + "." + key] = value;
+                }
+            }
+        }
+    }
 };

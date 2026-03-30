@@ -2,12 +2,14 @@
 #include "GangVehicleModelHook.h"
 
 #include "DebugLog.h"
+#include "IniConfig.h"
 #include "TerritorySystem.h"
 #include "GangInfo.h"
 #include "CTimer.h"
 
 #include <Windows.h>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
 
@@ -20,6 +22,10 @@ int GangVehicleModelHook::s_ctxWrite = 0;
 bool GangVehicleModelHook::s_installed = false;
 bool GangVehicleModelHook::s_enabled = true;
 GangVehicleModelHook::ChooseModel_t GangVehicleModelHook::s_original = nullptr;
+
+// Probability of injecting a gang vehicle when vanilla chose a civilian model in territory.
+// 0.0 = disabled (original behaviour), 0.12 = ~12% of civilian traffic becomes gang vehicles.
+static float s_gangVehicleInjectProb = 0.12f;
 
 // ------------------------------------------------------------
 // Helpers
@@ -98,6 +104,10 @@ static inline float Dist2(const CVector& a, const CVector& b) {
     const float dy = a.y - b.y;
     const float dz = a.z - b.z;
     return dx * dx + dy * dy + dz * dz;
+}
+
+static inline float Rand01() {
+    return (float)std::rand() / (float)RAND_MAX;
 }
 
 } // namespace
@@ -202,7 +212,12 @@ void GangVehicleModelHook::Install() {
     s_original = reinterpret_cast<ChooseModel_t>(tramp);
     s_installed = true;
 
-    DebugLog::Write("GangVehicleModelHook installed successfully at 0x%08X (stolen=%u)", targetAddr, (unsigned)stolen);
+    auto& ini = IniConfig::Instance();
+    ini.Load("III.GangTerritoryWars.ini");
+    s_gangVehicleInjectProb = ini.GetFloat("Spawning", "GangVehicleInjectProb", s_gangVehicleInjectProb);
+
+    DebugLog::Write("GangVehicleModelHook installed successfully at 0x%08X (stolen=%u injectProb=%.2f)",
+        targetAddr, (unsigned)stolen, s_gangVehicleInjectProb);
 }
 
 // ------------------------------------------------------------
@@ -217,32 +232,38 @@ int __cdecl GangVehicleModelHook::Hook(CZoneInfo* zoneInfo, CVector* pos, int* o
     if (!s_enabled) return originalModel;
     if (!TerritorySystem::HasRealTerritories()) return originalModel;
 
-    // Only override if vanilla wanted a gang vehicle (keeps normal traffic normal)
-    if (!IsAnyGangVehicleModel(originalModel)) return originalModel;
-
     const Territory* territory = TerritorySystem::GetTerritoryAtPoint(*pos);
     if (!territory) return originalModel;
 
     const int owner = territory->ownerGang;
     if (!IsValidOwnerGang(owner)) return originalModel;
 
+    const bool isGangVehicle = IsAnyGangVehicleModel(originalModel);
+
+    if (!isGangVehicle) {
+        // Civilian vehicle in gang territory: inject a gang vehicle at low probability.
+        // This surfaces gang vehicles in areas where vanilla never spawns them.
+        if (s_gangVehicleInjectProb <= 0.0f || Rand01() >= s_gangVehicleInjectProb)
+            return originalModel;
+    }
+
     const int desiredModel = GangManager::GetRandomGangVehicle((ePedType)owner);
     if (desiredModel < 0) return originalModel;
 
     const unsigned int now = CTimer::m_snTimeInMilliseconds;
 
-    // Occupant gang is now resolved in AddPedHook via nearby-vehicle scan.
-    // No context push needed here.
+    // Occupant gang is resolved in AddPedHook via nearby-vehicle scan.
     static unsigned int s_nextLogMs = 0;
     if (now >= s_nextLogMs) {
         s_nextLogMs = now + 1200;
         if (desiredModel != originalModel) {
             DebugLog::Write(
-                "ChooseModel OVERRIDE -> terr=%s owner=%d pos(%.1f,%.1f,%.1f) %d->%d",
+                "ChooseModel %s -> terr=%s owner=%d pos(%.1f,%.1f,%.1f) %d->%d",
+                isGangVehicle ? "OVERRIDE" : "INJECT",
                 territory->id.c_str(), owner, pos->x, pos->y, pos->z, originalModel, desiredModel
             );
         }
     }
 
-    return (desiredModel >= 0) ? desiredModel : originalModel;
+    return desiredModel;
 }

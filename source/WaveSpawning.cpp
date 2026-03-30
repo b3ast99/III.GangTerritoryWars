@@ -659,14 +659,16 @@ namespace WaveSpawning {
         // Set objective
         ped->SetObjective(OBJECTIVE_KILL_CHAR_ON_FOOT, targetPlayer);
 
-        // Set movement state
-        if (waveIndex >= 1) {
-            if (Rand01() < 0.4f) {
-                ped->SetMoveState(PEDMOVE_RUN);
-            }
-            else if (Rand01() < 0.3f) {
-                ped->SetMoveState(PEDMOVE_SPRINT);
-            }
+        // Set movement state — single roll ensures correct probability distribution.
+        // Wave 0: walk (stealthy opener feel)
+        // Wave 1+: 40% run, 30% sprint, 30% walk
+        if (waveIndex == 0) {
+            ped->SetMoveState(PEDMOVE_WALK);
+        } else {
+            const float moveRoll = Rand01();
+            if (moveRoll < 0.4f)       ped->SetMoveState(PEDMOVE_RUN);
+            else if (moveRoll < 0.7f)  ped->SetMoveState(PEDMOVE_SPRINT);
+            else                       ped->SetMoveState(PEDMOVE_WALK);
         }
 
         DebugLog::Write("Configured ped with weapon %d (ammo: %d)",

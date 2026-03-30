@@ -48,6 +48,7 @@ static float        REWRITE_PROB_CIV         = 0.00f;  // [Spawning] CivReplaceP
 static float        DENSITY_CHECK_RADIUS      = 40.0f;  // [Spawning] DensityCheckRadius
 static int          MAX_GANG_IN_AREA          = 3;      // [Spawning] MaxGangInArea
 static float        VEHICLE_OCCUPANT_SCAN_R   = 8.0f;   // [Spawning] VehicleOccupantScanRadius
+static float        GANG_REPLACE_PROB         = 0.60f;  // [Spawning] GangReplaceProb — fraction of ambient gang ped spawns rewritten; vehicle-context spawns always rewrite
 
 static unsigned int AMBIENT_INJECT_INTERVAL_MS    = 5000;
 static float        AMBIENT_INJECT_RADIUS_MIN      = 20.0f;
@@ -138,8 +139,9 @@ void PopulationAddPedHook::Install()
     AMBIENT_INJECT_RADIUS_MIN    = ini.GetFloat("Spawning", "AmbientRadiusMin",        AMBIENT_INJECT_RADIUS_MIN);
     AMBIENT_INJECT_RADIUS_MAX    = ini.GetFloat("Spawning", "AmbientRadiusMax",        AMBIENT_INJECT_RADIUS_MAX);
     AMBIENT_INJECT_MAX_PLAYER_DIST = ini.GetFloat("Spawning", "AmbientMaxPlayerDist", AMBIENT_INJECT_MAX_PLAYER_DIST);
-    DebugLog::Write("PopulationAddPedHook config: densityR=%.1f maxGang=%d vehScanR=%.1f civProb=%.2f",
-        DENSITY_CHECK_RADIUS, MAX_GANG_IN_AREA, VEHICLE_OCCUPANT_SCAN_R, REWRITE_PROB_CIV);
+    GANG_REPLACE_PROB              = ini.GetFloat("Spawning", "GangReplaceProb",       GANG_REPLACE_PROB);
+    DebugLog::Write("PopulationAddPedHook config: densityR=%.1f maxGang=%d vehScanR=%.1f civProb=%.2f gangReplaceProb=%.2f",
+        DENSITY_CHECK_RADIUS, MAX_GANG_IN_AREA, VEHICLE_OCCUPANT_SCAN_R, REWRITE_PROB_CIV, GANG_REPLACE_PROB);
 }
 
 bool PopulationAddPedHook::TryInstallAtAddress(uint32_t addr)
@@ -215,10 +217,14 @@ CPed* __cdecl PopulationAddPedHook::AddPedHook(ePedType pedType, unsigned int mo
         if ((t || hasVehicleContext) && ownerGang >= (int)PEDTYPE_GANG1 && ownerGang <= (int)PEDTYPE_GANG9) {
             const ePedType targetType = (ePedType)ownerGang;
 
-            // Case 1: Original spawn is gang-related -> always enforce territory/vehicle owner gang.
+            // Case 1: Original spawn is gang-related.
+            // Vehicle-context spawns always rewrite (match the vehicle's gang).
+            // Ambient gang spawns use a probability gate to allow natural variety.
             if (IsGangPedType(pedType) || IsGangModelIndex(modelIndexOrCopType)) {
                 g_PopAddPed_GangHitCount++;
-                shouldOverride = true;
+                if (hasVehicleContext || plugin::RandomNumberInRange(0.0f, 1.0f) < GANG_REPLACE_PROB) {
+                    shouldOverride = true;
+                }
             }
             // Case 2: civilian population can be converted at low probability (non-vehicle-context only)
             else if (!hasVehicleContext && IsCivilianPedType(pedType)) {

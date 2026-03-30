@@ -114,6 +114,8 @@ static bool ClampIntoTerritory(const Territory* t, float& x, float& y) {
 static bool FindSpawnPos(const Territory* t, const CVector& playerPos, CVector& out) {
     if (!t) return false;
 
+    const float minDist2 = s_spawnMinDist * s_spawnMinDist;
+
     for (int attempt = 0; attempt < s_spawnAttempts; ++attempt) {
         const float ang = RandRange(0.0f, 6.2831853f);
         const float dist = RandRange(s_spawnMinDist, s_spawnMaxDist);
@@ -124,10 +126,12 @@ static bool FindSpawnPos(const Territory* t, const CVector& playerPos, CVector& 
         // Keep inside territory to avoid “leaking”
         ClampIntoTerritory(t, x, y);
 
-        // Basic Z: start near player Z; GTA often corrects this on placement anyway
-        float z = playerPos.z + 1.0f;
+        // Reject if clamping pushed the point too close to the player
+        const float dx = x - playerPos.x, dy = y - playerPos.y;
+        if (dx * dx + dy * dy < minDist2) continue;
 
-        out = CVector(x, y, z);
+        // Basic Z: start near player Z; GTA often corrects this on placement anyway
+        out = CVector(x, y, playerPos.z + 1.0f);
         return true;
     }
 
@@ -194,6 +198,9 @@ void TerritoryAmbientSpawner::Update() {
 
     CPlayerPed* player = CWorld::Players[0].m_pPed;
     if (!player) return;
+
+    // Don't seed ambient peds while player is driving — gang members appear on foot
+    if (player->m_bInVehicle) return;
 
     const CVector playerPos = player->GetPosition();
 

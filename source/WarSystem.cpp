@@ -32,18 +32,14 @@ void WarSystem::Init() {
 void WarSystem::Process() {
     unsigned int now = CTimer::m_snTimeInMilliseconds;
 
-    // Clean old kills
+    // Clean old kills (no per-record logging — fires too frequently)
     if (!s_recentKills.empty()) {
         auto it = s_recentKills.begin();
         while (it != s_recentKills.end()) {
-            if (now - it->timestamp > s_triggerWindowMs) {
-                DebugLog::Write("Cleaning old kill: gang=%d, territory=%s, age=%u",
-                    (int)it->gangType, it->territoryId.c_str(), now - it->timestamp);
+            if (now - it->timestamp > s_triggerWindowMs)
                 it = s_recentKills.erase(it);
-            }
-            else {
+            else
                 ++it;
-            }
         }
     }
 
@@ -153,10 +149,9 @@ bool WarSystem::IsMissionActive() {
 }
 
 bool WarSystem::CanTriggerWarInTerritory(int territoryOwner) {
-    // GTA III doesnâ€™t have â€œplayer gang affiliationâ€ in the same way SA does.
-    // If you have a notion of player-affiliated gang, enforce it here.
-    // For now: allow provoking any non-neutral owner.
-    return territoryOwner != 0;
+    // Only allow provoking territories owned by a known gang (GANG1-GANG3).
+    // Excludes -1 (cleared/neutral) and 0 (unowned) -- H2 fix.
+    return territoryOwner >= (int)PEDTYPE_GANG1 && territoryOwner <= (int)PEDTYPE_GANG3;
 }
 
 const Territory* WarSystem::GetTerritoryAtPosition(const CVector& pos) {
