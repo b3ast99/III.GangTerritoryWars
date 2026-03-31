@@ -1,0 +1,66 @@
+# id,minX,minY,maxX,maxY,ownerGangCode,underAttack,defenseLevel
+# ownerGangCode: 7=Mafia  8=Triads  9=Diablos  10=Yakuza  11=Colombians  12=Yardies
+# defenseLevel: 0=easy  1=medium  2=boss (gang stronghold)
+# underAttack is always 0 in this file (runtime-only flag)
+#
+# Island x-boundaries: Portland x > 616 | Staunton -378 < x <= 616 | Shoreside x <= -378
+# Gang acts:  Act 1 = Portland (Mafia allied, Triads+Diablos hostile)
+#             Act 2 = Staunton (Yakuza allied, Colombians+Yardies hostile)
+#             Act 3 = All islands (all gangs hostile, captures -> CLEARED)
+
+# ============================================================
+# PORTLAND  (Act 1)
+# ============================================================
+
+# --- Diablos (9) : Trenton / Portland Harbor / Hepburn Heights ---
+1001,902,-327,961,-160.5,9,0,0
+1002,961,-327,1070,-160.5,9,0,1
+1003,880,-160.5,1070,40,9,0,2
+1101,902,-465,1070,-327,9,0,1
+1401,617,100,880,450,9,0,0
+
+# --- Triads (8) : Red Light District / Chinatown ---
+1201,617,-400,880,0,8,0,1
+1202,617,0,880,100,8,0,2
+
+# --- Mafia (7) : Portland Harbor east / St. Mark's / Portland Beach ---
+1301,1120,-516,1220,-310,7,0,0
+1302,1120,-310,1220,-160,7,0,1
+1303,1220,-516,1390,-365,7,0,1
+1304,1220,-365,1390,-150,7,0,2
+1305,1120,-150,1390,250,7,0,0
+
+# ============================================================
+# STAUNTON ISLAND  (Act 2)
+# ============================================================
+# Island divided into three N-S strips:
+#   East  x=[350,610]  : Yakuza  (Newport / Torrington)
+#   Central x=[100,350]: Yardies (Fort Staunton / King's Cross)
+#   West  x=[-120,100] : Colombians (Aspatria / Bedford Point)
+
+# --- Yakuza (10) : Newport / Torrington ---
+2101,350,-680,610,-200,10,0,1
+2102,350,-200,610,200,10,0,2
+
+# --- Yardies (12) : Fort Staunton / King's Cross ---
+2301,100,-680,350,-200,12,0,1
+2302,100,-200,350,200,12,0,2
+
+# --- Colombians (11) : Aspatria / Bedford Point ---
+2201,-120,-680,100,-200,11,0,1
+2202,-120,-200,100,200,11,0,2
+
+# ============================================================
+# SHORESIDE VALE  (Act 3)
+# ============================================================
+# North half: Colombians (Cedar Grove / Cochrane Dam)
+# South half: Yardies (Wichita Gardens)
+# East/west split at x=-750
+
+# --- Colombians (11) : Cedar Grove / Cochrane Dam ---
+3101,-750,-100,-378,400,11,0,1
+3102,-1200,-100,-750,400,11,0,2
+
+# --- Yardies (12) : Wichita Gardens ---
+3201,-750,-600,-378,-100,12,0,1
+3202,-1200,-600,-750,-100,12,0,0
