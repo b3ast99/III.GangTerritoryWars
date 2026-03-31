@@ -1,5 +1,8 @@
 #include "TerritoryAmbientSpawner.h"
 
+#include "TerritoryStateRule.h"
+#include "ActManager.h"
+
 #include "DebugLog.h"
 #include "IniConfig.h"
 #include "TerritorySystem.h"
@@ -73,8 +76,8 @@ static inline float RandRange(float a, float b) {
 }
 
 static bool IsOwnerGangValid(int ownerGang) {
-    // Your mod uses 3 gangs; ownerGang corresponds to PEDTYPE_GANG1..3
-    return ownerGang >= (int)PEDTYPE_GANG1 && ownerGang <= (int)PEDTYPE_GANG3;
+    // 6 gangs: PEDTYPE_GANG1..6. OWNER_NEUTRAL (-1) and OWNER_CLEARED (-2) return false → no spawning.
+    return ownerGang >= (int)PEDTYPE_GANG1 && ownerGang <= (int)PEDTYPE_GANG6;
 }
 
 static int CountNearbyOwnerGangPeds(const CVector& center, float radius, int ownerGang) {
@@ -209,6 +212,8 @@ void TerritoryAmbientSpawner::Update() {
     if (!t) return;
 
     const int ownerGang = t->ownerGang;
+    // Spawn gang peds in any valid gang-owned territory regardless of act — gang members
+    // always inhabit their turf. OWNER_NEUTRAL (-1) and OWNER_CLEARED (-2) return false.
     if (!IsOwnerGangValid(ownerGang)) return;
 
     // Sync cooldown array to territories size

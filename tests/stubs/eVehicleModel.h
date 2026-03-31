@@ -16,4 +16,6 @@ enum eVehicleModel : unsigned int {
     MODEL_YARDIE,  // 135
     MODEL_YAKUZA,  // 136
     MODEL_DIABLOS, // 137
+    MODEL_COLUMB,  // 138
+    MODEL_HOODS,   // 139
 };

@@ -30,5 +30,6 @@ public:
     static const std::vector<int>& GetAmbientCivilianModelIds();
     static const char* GetGangName(ePedType gangType);
     static int GetGangBlipColor(ePedType gangType);
-    static GangInfo s_gangs[3];
+    static bool IsValidGangType(ePedType gangType);
+    static GangInfo s_gangs[6];
 };

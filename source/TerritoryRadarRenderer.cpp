@@ -3,6 +3,9 @@
 #include "IniConfig.h"
 #include "DebugLog.h"
 #include "WaveManager.h"
+#include "TerritoryStateRule.h"
+#include "IslandRule.h"
+#include "ActManager.h"
 
 #include "CRadar.h"
 #include "CTimer.h"
@@ -157,15 +160,21 @@ namespace {
             );
             };
 
-        // Base colors (slightly more vivid than your muted set)
+        // Base colors per gang
         switch (ownerGang) {
-        case PEDTYPE_GANG1: // Green
+        case PEDTYPE_GANG1: // Mafia — green
             return ApplySaturation(60, 220, 60);
-        case PEDTYPE_GANG2: // Blue
+        case PEDTYPE_GANG2: // Triads — blue
             return ApplySaturation(60, 60, 235);
-        case PEDTYPE_GANG3: // Red
+        case PEDTYPE_GANG3: // Diablos — red
             return ApplySaturation(245, 60, 60);
-        default: // Yellow
+        case PEDTYPE_GANG4: // Yakuza — light blue
+            return ApplySaturation(60, 200, 230);
+        case PEDTYPE_GANG5: // Colombians — magenta/pink
+            return ApplySaturation(220, 60, 200);
+        case PEDTYPE_GANG6: // Yardies — cyan
+            return ApplySaturation(60, 230, 200);
+        default: // fallback — yellow
             return ApplySaturation(255, 230, 70);
         }
     }
@@ -605,10 +614,18 @@ void TerritoryRadarRenderer::DrawRadarOverlay(const std::vector<Territory>& terr
     // Set overlay draw state once per frame
     SetRenderStateForOverlay();
 
+    const int currentAct = ActManager::GetCurrentAct();
+
     for (const auto& t : territories) {
 
-        const bool shouldFlash = t.underAttack;
+        // Hide territories on islands the player hasn't reached yet, and hide
+        // everything in Act 0 (system is unknown to the player before JM2).
+        const float centerX = (t.minX + t.maxX) * 0.5f;
+        const float centerY = (t.minY + t.maxY) * 0.5f;
+        const bool isLocked = !IsIslandUnlocked(GetIslandForPosition(centerX, centerY), currentAct);
+        if (!IsTerritoryVisible(ComputeTerritoryState(t.ownerGang, currentAct, isLocked))) continue;
 
+        const bool shouldFlash = t.underAttack;
         const CRGBA fill = RGBAForOwner(t.ownerGang, shouldFlash, t.defenseLevel);
         DrawRadarTerritory(t, fill);
     }

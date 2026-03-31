@@ -1,5 +1,7 @@
 #include "TerritoryPersistence.h"
 #include "HookUtil.h"
+#include "ActManager.h"
+#include "IniConfig.h"
 #include "TerritorySystem.h"
 #include "TerritoryRadarRenderer.h"
 #include "WaveManager.h"
@@ -72,6 +74,7 @@ static const unsigned int kChunkedVersion = 2; // what we WRITE going forward
 static int s_pendingResetSlot = -1;
 
 static const unsigned int kTag_OWNR = 0x524E574F; // 'OWNR' little-endian
+static const unsigned int kTag_ACTL = 0x4C544341; // 'ACTL' little-endian
 
 static void PushU32(std::vector<unsigned char>& out, unsigned int v) {
     out.push_back((unsigned char)(v & 0xFF));
@@ -361,6 +364,13 @@ void TerritoryPersistence::Process() {
                 s_lastAppliedSlot = slot;
                 s_lastAppliedMs = now;
                 LoadSidecarAndApply(slot);
+                // Dev override: if GTW.ini sets [Dev] StartingAct, it wins over
+                // everything — sidecar, inference, and CStats. Set to -1 to disable.
+                const int devAct = IniConfig::Instance().GetInt("Dev", "StartingAct", -1);
+                if (devAct >= 0 && devAct <= 3) {
+                    ActManager::SetAct(devAct);
+                    DebugLog::Write("ActManager: DevStartingAct override -> act %d", devAct);
+                }
             }
         }
     }
@@ -551,6 +561,8 @@ void TerritoryPersistence::LoadSidecarAndApply(int slot) {
         DebugLog::Write("TerritoryPersistence: no sidecar for slot %d -> defaults", slot);
         TerritorySystem::ResetOwnershipToDefaults();
         TerritorySystem::ClearAllWarsAndTransientState();
+        ActManager::Init();
+        ActManager::InferActOnFirstLoad();
         return;
     }
 
@@ -653,7 +665,9 @@ void TerritoryPersistence::LoadSidecarAndApply(int slot) {
         }
 
         bool foundOwnr = false;
+        bool foundActl = false;
         std::string perr;
+        ActManager::Init(); // default to act 0; overwritten if ACTL chunk present
 
         for (unsigned int c = 0; c < chunkCount; ++c) {
             unsigned int tag = 0, len = 0;
@@ -679,13 +693,29 @@ void TerritoryPersistence::LoadSidecarAndApply(int slot) {
                 }
             }
 
-            // Skip payload (even if parsed) to continue scanning for other chunks later
+            else if (tag == kTag_ACTL && len == 4) {
+                unsigned int actVal = 0;
+                size_t pi = i;
+                if (ReadU32(bytes, pi, actVal) && actVal <= 3) {
+                    ActManager::SetAct((int)actVal);
+                    foundActl = true;
+                    DebugLog::Write("TerritoryPersistence: loaded act %u slot %d", actVal, slot);
+                }
+            }
+
+            // Skip payload (even if parsed) to continue scanning for other chunks
             i += len;
         }
 
         if (!foundOwnr) {
             DebugLog::Write("TerritoryPersistence: v2 missing OWNR chunk slot %d", slot);
             ok = false;
+        }
+
+        if (!foundActl) {
+            // Older sidecar without ACTL — mod installed before act system existed.
+            DebugLog::Write("TerritoryPersistence: no ACTL chunk slot %d -> inferring act", slot);
+            ActManager::InferActOnFirstLoad();
         }
     }
     else {
@@ -741,17 +771,25 @@ void TerritoryPersistence::SaveSidecar(int slot) {
         PushU32(ownr, (unsigned int)e.ownerGang);
     }
 
+    // Build ACTL payload (4 bytes: current act 0-3)
+    std::vector<unsigned char> actl;
+    PushU32(actl, (unsigned int)ActManager::GetCurrentAct());
+
     // Write container (v2 chunked)
     std::vector<unsigned char> out;
-    out.reserve(16 + 8 + ownr.size());
+    out.reserve(16 + 8 + ownr.size() + 8 + actl.size());
 
     PushU32(out, kMagic);
     PushU32(out, kChunkedVersion);
-    PushU32(out, 1); // chunkCount
+    PushU32(out, 2); // chunkCount: OWNR + ACTL
 
     PushU32(out, kTag_OWNR);
     PushU32(out, (unsigned int)ownr.size());
     out.insert(out.end(), ownr.begin(), ownr.end());
+
+    PushU32(out, kTag_ACTL);
+    PushU32(out, (unsigned int)actl.size());
+    out.insert(out.end(), actl.begin(), actl.end());
 
     FILE* f = std::fopen(tmpPath, "wb");
     if (!f) {

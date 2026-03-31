@@ -12,7 +12,7 @@
 #include <cstdlib>
 #include <initializer_list>
 
-GangInfo GangManager::s_gangs[3];
+GangInfo GangManager::s_gangs[6];
 
 
 static const std::vector<int> kAmbientCivilianModels = {
@@ -67,7 +67,7 @@ void GangManager::Initialize()
     s_gangs[1].defaultWeapon = WEAPONTYPE_UZI;
     s_gangs[1].blipColor = BLIP_COLOUR_GREEN;
     SetFallbackModels(s_gangs[1].modelIds, { 12, 13 });
-    SetFallbackModels(s_gangs[1].vehicleModelIds, { MODEL_YAKUZA });
+    SetFallbackModels(s_gangs[1].vehicleModelIds, { MODEL_BELLYUP });
 
     // Diablos
     s_gangs[2].gangType = PEDTYPE_GANG3;
@@ -76,6 +76,30 @@ void GangManager::Initialize()
     s_gangs[2].blipColor = BLIP_COLOUR_YELLOW;
     SetFallbackModels(s_gangs[2].modelIds, { 14, 15 });
     SetFallbackModels(s_gangs[2].vehicleModelIds, { MODEL_DIABLOS });
+
+    // Yakuza
+    s_gangs[3].gangType = PEDTYPE_GANG4;
+    s_gangs[3].displayName = "Yakuza";
+    s_gangs[3].defaultWeapon = WEAPONTYPE_UZI;
+    s_gangs[3].blipColor = BLIP_COLOUR_LIGHT_BLUE;
+    SetFallbackModels(s_gangs[3].modelIds, { 16, 17 });
+    SetFallbackModels(s_gangs[3].vehicleModelIds, { MODEL_YAKUZA });
+
+    // Colombians
+    s_gangs[4].gangType = PEDTYPE_GANG5;
+    s_gangs[4].displayName = "Colombians";
+    s_gangs[4].defaultWeapon = WEAPONTYPE_AK47;
+    s_gangs[4].blipColor = BLIP_COLOUR_MAGENTA;
+    SetFallbackModels(s_gangs[4].modelIds, { 18, 19 });
+    SetFallbackModels(s_gangs[4].vehicleModelIds, { MODEL_COLUMB });
+
+    // Yardies
+    s_gangs[5].gangType = PEDTYPE_GANG6;
+    s_gangs[5].displayName = "Yardies";
+    s_gangs[5].defaultWeapon = WEAPONTYPE_UZI;
+    s_gangs[5].blipColor = BLIP_COLOUR_CYAN;
+    SetFallbackModels(s_gangs[5].modelIds, { 20, 21 });
+    SetFallbackModels(s_gangs[5].vehicleModelIds, { MODEL_YARDIE });
 
     // Try once immediately (may fail early; that’s fine)
     TryLateResolveModels();
@@ -111,6 +135,24 @@ void GangManager::TryLateResolveModels()
     if (TryResolveInto(s_gangs[2].modelIds, "gang05", "gang06")) {
         DebugLog::Write("GangInfo: resolved Diablos by name -> %d,%d",
             s_gangs[2].modelIds[0], s_gangs[2].modelIds.size() > 1 ? s_gangs[2].modelIds[1] : -1);
+        anyResolved = true;
+    }
+
+    if (TryResolveInto(s_gangs[3].modelIds, "gang07", "gang08")) {
+        DebugLog::Write("GangInfo: resolved Yakuza by name -> %d,%d",
+            s_gangs[3].modelIds[0], s_gangs[3].modelIds.size() > 1 ? s_gangs[3].modelIds[1] : -1);
+        anyResolved = true;
+    }
+
+    if (TryResolveInto(s_gangs[4].modelIds, "gang09", "gang10")) {
+        DebugLog::Write("GangInfo: resolved Colombians by name -> %d,%d",
+            s_gangs[4].modelIds[0], s_gangs[4].modelIds.size() > 1 ? s_gangs[4].modelIds[1] : -1);
+        anyResolved = true;
+    }
+
+    if (TryResolveInto(s_gangs[5].modelIds, "gang11", "gang12")) {
+        DebugLog::Write("GangInfo: resolved Yardies by name -> %d,%d",
+            s_gangs[5].modelIds[0], s_gangs[5].modelIds.size() > 1 ? s_gangs[5].modelIds[1] : -1);
         anyResolved = true;
     }
 
@@ -218,4 +260,9 @@ bool GangManager::IsGangModelId(int modelId)
 const std::vector<int>& GangManager::GetAmbientCivilianModelIds()
 {
     return kAmbientCivilianModels;
+}
+
+bool GangManager::IsValidGangType(ePedType gangType)
+{
+    return gangType >= PEDTYPE_GANG1 && gangType <= PEDTYPE_GANG6;
 }
