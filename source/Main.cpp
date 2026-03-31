@@ -16,6 +16,7 @@
 #include "PopulationAddPedHook.h"
 #include "GangVehicleModelHook.h"
 #include "TerritoryAmbientSpawner.h"
+#include "ActManager.h"
 #include "CStreaming.h"
 
 #include <windows.h>
@@ -109,8 +110,8 @@ public:
             if (!s_modelsPreloaded) {
                 DebugLog::Write("Starting one-time model preload (first tick)...");
 
-                // Gang ped + vehicle models
-                for (int i = 0; i < 3; ++i) {
+                // Gang ped + vehicle models (all 6 gangs)
+                for (int i = 0; i < 6; ++i) {
                     const GangInfo& gang = GangManager::s_gangs[i];
                     for (int modelId : gang.modelIds) {
                         if (modelId >= 0 && CModelInfo::GetModelInfo(modelId)) {
@@ -142,6 +143,7 @@ public:
                 s_modelsPreloaded = true;
             }
 
+            ActManager::PollMissionProgress();
             GangManager::TryLateResolveModels();
             PopulationAddPedHook::DebugTick();
             TerritoryAmbientSpawner::Process();

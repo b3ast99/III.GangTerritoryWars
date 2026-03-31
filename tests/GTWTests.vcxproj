@@ -91,6 +91,10 @@
     <ClCompile Include="test_wave_config.cpp" />
     <ClCompile Include="test_gang_info.cpp" />
     <ClCompile Include="test_neutral_revert.cpp" />
+    <ClCompile Include="test_island_rule.cpp" />
+    <ClCompile Include="test_affiliation_rule.cpp" />
+    <ClCompile Include="test_territory_state_rule.cpp" />
+    <ClCompile Include="test_act_transition_rule.cpp" />
     <ClCompile Include="DebugLog_stub.cpp" />
     <!-- Pure-logic source files under test (no game SDK dependencies) -->
     <ClCompile Include="..\source\GangInfo.cpp" />
@@ -122,6 +126,11 @@
     <ClInclude Include="stubs\eWeaponType.h" />
     <ClInclude Include="..\source\KillCreditRule.h" />
     <ClInclude Include="..\source\NeutralRevertRule.h" />
+    <ClInclude Include="..\source\IslandRule.h" />
+    <ClInclude Include="..\source\ActManager.h" />
+    <ClInclude Include="..\source\ActTransitionRule.h" />
+    <ClInclude Include="..\source\AffiliationRule.h" />
+    <ClInclude Include="..\source\TerritoryStateRule.h" />
     <ClInclude Include="..\source\TerritorySystem.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

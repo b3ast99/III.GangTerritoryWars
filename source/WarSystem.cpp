@@ -1,5 +1,8 @@
 #include "WarSystem.h"
 
+#include "AffiliationRule.h"
+#include "ActManager.h"
+
 #include "CWorld.h"
 #include "CPlayerPed.h"
 #include "CTimer.h"
@@ -53,7 +56,7 @@ void WarSystem::Process() {
 
             if (currentTerr) {
                 // Check if we have enough kills for this territory
-                for (int gangType = PEDTYPE_GANG1; gangType <= PEDTYPE_GANG3; gangType++) {
+                for (int gangType = PEDTYPE_GANG1; gangType <= PEDTYPE_GANG6; gangType++) {
                     if (currentTerr->ownerGang == gangType) {
                         int killCount = CountRecentKillsForTerritory(currentTerr->id, (ePedType)gangType);
 
@@ -149,9 +152,9 @@ bool WarSystem::IsMissionActive() {
 }
 
 bool WarSystem::CanTriggerWarInTerritory(int territoryOwner) {
-    // Only allow provoking territories owned by a known gang (GANG1-GANG3).
-    // Excludes -1 (cleared/neutral) and 0 (unowned) -- H2 fix.
-    return territoryOwner >= (int)PEDTYPE_GANG1 && territoryOwner <= (int)PEDTYPE_GANG3;
+    // Act-aware check: can we attack a territory with this owner in the current act?
+    // Handles allied gangs (blocked), neutral/cleared (blocked), and locked (false).
+    return CanAttackTerritoryOwner(territoryOwner, ActManager::GetCurrentAct(), /*isLocked=*/false);
 }
 
 const Territory* WarSystem::GetTerritoryAtPosition(const CVector& pos) {

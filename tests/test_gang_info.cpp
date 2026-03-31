@@ -18,12 +18,27 @@ static void SetupGangs() {
     GangManager::s_gangs[1].gangType       = PEDTYPE_GANG2;
     GangManager::s_gangs[1].displayName    = "Triads";
     GangManager::s_gangs[1].modelIds       = { 12, 13 };
-    GangManager::s_gangs[1].vehicleModelIds = { 136 };
+    GangManager::s_gangs[1].vehicleModelIds = { 132 }; // BELLYUP (fixed from YAKUZA)
 
     GangManager::s_gangs[2].gangType       = PEDTYPE_GANG3;
     GangManager::s_gangs[2].displayName    = "Diablos";
     GangManager::s_gangs[2].modelIds       = { 14, 15 };
     GangManager::s_gangs[2].vehicleModelIds = { 137 };
+
+    GangManager::s_gangs[3].gangType       = PEDTYPE_GANG4;
+    GangManager::s_gangs[3].displayName    = "Yakuza";
+    GangManager::s_gangs[3].modelIds       = { 16, 17 };
+    GangManager::s_gangs[3].vehicleModelIds = { 136 };
+
+    GangManager::s_gangs[4].gangType       = PEDTYPE_GANG5;
+    GangManager::s_gangs[4].displayName    = "Colombians";
+    GangManager::s_gangs[4].modelIds       = { 18, 19 };
+    GangManager::s_gangs[4].vehicleModelIds = { 138 };
+
+    GangManager::s_gangs[5].gangType       = PEDTYPE_GANG6;
+    GangManager::s_gangs[5].displayName    = "Yardies";
+    GangManager::s_gangs[5].modelIds       = { 20, 21 };
+    GangManager::s_gangs[5].vehicleModelIds = { 135 };
 }
 
 void RunGangInfoTests(Test::Runner& t) {
@@ -52,6 +67,24 @@ void RunGangInfoTests(Test::Runner& t) {
         REQUIRE_EQ(g->gangType, PEDTYPE_GANG3);
     });
 
+    t.run("returns entry for GANG4", [&] {
+        const GangInfo* g = GangManager::GetGangInfo(PEDTYPE_GANG4);
+        REQUIRE(g != nullptr);
+        REQUIRE_EQ(g->gangType, PEDTYPE_GANG4);
+    });
+
+    t.run("returns entry for GANG5", [&] {
+        const GangInfo* g = GangManager::GetGangInfo(PEDTYPE_GANG5);
+        REQUIRE(g != nullptr);
+        REQUIRE_EQ(g->gangType, PEDTYPE_GANG5);
+    });
+
+    t.run("returns entry for GANG6", [&] {
+        const GangInfo* g = GangManager::GetGangInfo(PEDTYPE_GANG6);
+        REQUIRE(g != nullptr);
+        REQUIRE_EQ(g->gangType, PEDTYPE_GANG6);
+    });
+
     t.run("returns null for unknown ped type", [&] {
         REQUIRE(GangManager::GetGangInfo(PEDTYPE_CIVMALE) == nullptr);
         REQUIRE(GangManager::GetGangInfo(PEDTYPE_COP)     == nullptr);
@@ -64,18 +97,27 @@ void RunGangInfoTests(Test::Runner& t) {
     t.suite("GangManager – IsGangModelId (ped models)");
 
     t.run("registered ped models are recognised", [&] {
-        REQUIRE(GangManager::IsGangModelId(10));
+        REQUIRE(GangManager::IsGangModelId(10));  // Mafia
         REQUIRE(GangManager::IsGangModelId(11));
-        REQUIRE(GangManager::IsGangModelId(12));
+        REQUIRE(GangManager::IsGangModelId(12));  // Triads
         REQUIRE(GangManager::IsGangModelId(13));
-        REQUIRE(GangManager::IsGangModelId(14));
+        REQUIRE(GangManager::IsGangModelId(14));  // Diablos
         REQUIRE(GangManager::IsGangModelId(15));
+        REQUIRE(GangManager::IsGangModelId(16));  // Yakuza
+        REQUIRE(GangManager::IsGangModelId(17));
+        REQUIRE(GangManager::IsGangModelId(18));  // Colombians
+        REQUIRE(GangManager::IsGangModelId(19));
+        REQUIRE(GangManager::IsGangModelId(20));  // Yardies
+        REQUIRE(GangManager::IsGangModelId(21));
     });
 
     t.run("vehicle models are not ped models", [&] {
-        REQUIRE_FALSE(GangManager::IsGangModelId(134));
-        REQUIRE_FALSE(GangManager::IsGangModelId(136));
-        REQUIRE_FALSE(GangManager::IsGangModelId(137));
+        REQUIRE_FALSE(GangManager::IsGangModelId(132)); // BELLYUP
+        REQUIRE_FALSE(GangManager::IsGangModelId(134)); // MAFIA
+        REQUIRE_FALSE(GangManager::IsGangModelId(135)); // YARDIE
+        REQUIRE_FALSE(GangManager::IsGangModelId(136)); // YAKUZA
+        REQUIRE_FALSE(GangManager::IsGangModelId(137)); // DIABLOS
+        REQUIRE_FALSE(GangManager::IsGangModelId(138)); // COLUMB
     });
 
     t.run("civilian model IDs are not gang models", [&] {
@@ -96,8 +138,11 @@ void RunGangInfoTests(Test::Runner& t) {
 
     t.run("registered vehicle models are recognised", [&] {
         REQUIRE(GangManager::IsGangVehicleModel(134)); // Mafia
-        REQUIRE(GangManager::IsGangVehicleModel(136)); // Triads/Yakuza
+        REQUIRE(GangManager::IsGangVehicleModel(132)); // Triads (BELLYUP)
         REQUIRE(GangManager::IsGangVehicleModel(137)); // Diablos
+        REQUIRE(GangManager::IsGangVehicleModel(136)); // Yakuza
+        REQUIRE(GangManager::IsGangVehicleModel(138)); // Colombians
+        REQUIRE(GangManager::IsGangVehicleModel(135)); // Yardies
     });
 
     t.run("ped models are not vehicle models", [&] {
@@ -125,12 +170,24 @@ void RunGangInfoTests(Test::Runner& t) {
         REQUIRE_EQ(GangManager::GetGangForVehicleModel(134), (int)PEDTYPE_GANG1);
     });
 
-    t.run("Triads vehicle (136) maps to GANG2 (8)", [&] {
-        REQUIRE_EQ(GangManager::GetGangForVehicleModel(136), (int)PEDTYPE_GANG2);
+    t.run("Triads vehicle (132/BELLYUP) maps to GANG2 (8)", [&] {
+        REQUIRE_EQ(GangManager::GetGangForVehicleModel(132), (int)PEDTYPE_GANG2);
     });
 
     t.run("Diablos vehicle (137) maps to GANG3 (9)", [&] {
         REQUIRE_EQ(GangManager::GetGangForVehicleModel(137), (int)PEDTYPE_GANG3);
+    });
+
+    t.run("Yakuza vehicle (136) maps to GANG4 (10)", [&] {
+        REQUIRE_EQ(GangManager::GetGangForVehicleModel(136), (int)PEDTYPE_GANG4);
+    });
+
+    t.run("Colombian vehicle (138) maps to GANG5 (11)", [&] {
+        REQUIRE_EQ(GangManager::GetGangForVehicleModel(138), (int)PEDTYPE_GANG5);
+    });
+
+    t.run("Yardie vehicle (135) maps to GANG6 (12)", [&] {
+        REQUIRE_EQ(GangManager::GetGangForVehicleModel(135), (int)PEDTYPE_GANG6);
     });
 
     t.run("civilian vehicle returns -1", [&] {
@@ -146,11 +203,6 @@ void RunGangInfoTests(Test::Runner& t) {
     t.run("ped model ID returns -1 (not a vehicle)", [&] {
         REQUIRE_EQ(GangManager::GetGangForVehicleModel(10), -1);
         REQUIRE_EQ(GangManager::GetGangForVehicleModel(14), -1);
-    });
-
-    t.run("Yardie vehicle (135) returns -1 (no Yardie gang registered)", [&] {
-        // Yardie is a vanilla GTA III gang not managed by this mod
-        REQUIRE_EQ(GangManager::GetGangForVehicleModel(135), -1);
     });
 
     // ------------------------------------------------------------------
@@ -179,6 +231,30 @@ void RunGangInfoTests(Test::Runner& t) {
         for (int i = 0; i < 50; ++i) {
             const int m = GangManager::GetRandomModelId(PEDTYPE_GANG3);
             REQUIRE(m == 14 || m == 15);
+        }
+    });
+
+    t.run("GANG4 model always in {16, 17}", [&] {
+        std::srand(42);
+        for (int i = 0; i < 50; ++i) {
+            const int m = GangManager::GetRandomModelId(PEDTYPE_GANG4);
+            REQUIRE(m == 16 || m == 17);
+        }
+    });
+
+    t.run("GANG5 model always in {18, 19}", [&] {
+        std::srand(42);
+        for (int i = 0; i < 50; ++i) {
+            const int m = GangManager::GetRandomModelId(PEDTYPE_GANG5);
+            REQUIRE(m == 18 || m == 19);
+        }
+    });
+
+    t.run("GANG6 model always in {20, 21}", [&] {
+        std::srand(42);
+        for (int i = 0; i < 50; ++i) {
+            const int m = GangManager::GetRandomModelId(PEDTYPE_GANG6);
+            REQUIRE(m == 20 || m == 21);
         }
     });
 
@@ -214,10 +290,10 @@ void RunGangInfoTests(Test::Runner& t) {
         }
     });
 
-    t.run("GANG2 vehicle is always 136", [&] {
+    t.run("GANG2 vehicle is always 132 (BELLYUP)", [&] {
         std::srand(42);
         for (int i = 0; i < 30; ++i) {
-            REQUIRE_EQ(GangManager::GetRandomGangVehicle(PEDTYPE_GANG2), 136);
+            REQUIRE_EQ(GangManager::GetRandomGangVehicle(PEDTYPE_GANG2), 132);
         }
     });
 
@@ -228,9 +304,30 @@ void RunGangInfoTests(Test::Runner& t) {
         }
     });
 
+    t.run("GANG4 vehicle is always 136 (YAKUZA)", [&] {
+        std::srand(42);
+        for (int i = 0; i < 30; ++i) {
+            REQUIRE_EQ(GangManager::GetRandomGangVehicle(PEDTYPE_GANG4), 136);
+        }
+    });
+
+    t.run("GANG5 vehicle is always 138 (COLUMB)", [&] {
+        std::srand(42);
+        for (int i = 0; i < 30; ++i) {
+            REQUIRE_EQ(GangManager::GetRandomGangVehicle(PEDTYPE_GANG5), 138);
+        }
+    });
+
+    t.run("GANG6 vehicle is always 135 (YARDIE)", [&] {
+        std::srand(42);
+        for (int i = 0; i < 30; ++i) {
+            REQUIRE_EQ(GangManager::GetRandomGangVehicle(PEDTYPE_GANG6), 135);
+        }
+    });
+
     t.run("returns -1 for unregistered gang type", [&] {
         REQUIRE_EQ(GangManager::GetRandomGangVehicle(PEDTYPE_COP),   -1);
-        REQUIRE_EQ(GangManager::GetRandomGangVehicle(PEDTYPE_GANG4), -1);
+        REQUIRE_EQ(GangManager::GetRandomGangVehicle(PEDTYPE_GANG9), -1);
     });
 
     t.run("returns -1 when vehicle list cleared", [&] {
@@ -261,5 +358,31 @@ void RunGangInfoTests(Test::Runner& t) {
         for (int id : civs) {
             REQUIRE_FALSE(GangManager::IsGangVehicleModel(id));
         }
+    });
+
+    // ------------------------------------------------------------------
+    // IsValidGangType
+    // ------------------------------------------------------------------
+    t.suite("GangManager – IsValidGangType");
+
+    t.run("GANG1-6 are valid", [&] {
+        REQUIRE(GangManager::IsValidGangType(PEDTYPE_GANG1));
+        REQUIRE(GangManager::IsValidGangType(PEDTYPE_GANG2));
+        REQUIRE(GangManager::IsValidGangType(PEDTYPE_GANG3));
+        REQUIRE(GangManager::IsValidGangType(PEDTYPE_GANG4));
+        REQUIRE(GangManager::IsValidGangType(PEDTYPE_GANG5));
+        REQUIRE(GangManager::IsValidGangType(PEDTYPE_GANG6));
+    });
+
+    t.run("GANG7-9 are not valid", [&] {
+        REQUIRE_FALSE(GangManager::IsValidGangType(PEDTYPE_GANG7));
+        REQUIRE_FALSE(GangManager::IsValidGangType(PEDTYPE_GANG8));
+        REQUIRE_FALSE(GangManager::IsValidGangType(PEDTYPE_GANG9));
+    });
+
+    t.run("non-gang types are not valid", [&] {
+        REQUIRE_FALSE(GangManager::IsValidGangType(PEDTYPE_PLAYER1));
+        REQUIRE_FALSE(GangManager::IsValidGangType(PEDTYPE_CIVMALE));
+        REQUIRE_FALSE(GangManager::IsValidGangType(PEDTYPE_COP));
     });
 }

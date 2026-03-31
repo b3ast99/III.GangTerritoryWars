@@ -140,6 +140,7 @@ taskkill /IM gta3.exe /F /FI "STATUS eq RUNNING"
     <ClCompile Include="source\TerritoryAmbientSpawner.cpp" />
     <ClCompile Include="source\TerritoryRadarRenderer.cpp" />
     <ClCompile Include="source\TerritorySystem.cpp" />
+    <ClCompile Include="source\ActManager.cpp" />
     <ClCompile Include="source\WarSystem.cpp" />
     <ClCompile Include="source\WaveCombat.cpp" />
     <ClCompile Include="source\WaveConfig.cpp" />
