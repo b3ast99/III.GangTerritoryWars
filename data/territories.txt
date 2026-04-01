@@ -19,9 +19,9 @@
 1101,902,-465,1070,-327,9,0,1
 1401,617,100,880,450,9,0,0
 
-# --- Triads (8) : Red Light District / Chinatown ---
-1201,617,-400,880,0,8,0,1
-1202,617,0,880,100,8,0,2
+# --- Triads (8) : Red Light District / Chinatown (south-central Portland) ---
+1201,617,-500,880,-150,8,0,1
+1202,617,-150,880,0,8,0,2
 
 # --- Mafia (7) : Portland Harbor east / St. Mark's / Portland Beach ---
 1301,1120,-516,1220,-310,7,0,0
